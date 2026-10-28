@@ -5,6 +5,8 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from PIL import ImageDraw  # noqa: E402
+from backend.render import Canvas  # noqa: E402
 from backend.tools_paint import clone, gradient, heal, smudge, tone  # noqa: E402
 
 BW = [[0, "#000000", 1], [1, "#ffffff", 1]]
@@ -34,6 +36,31 @@ def test_gradient_endpoints_per_shape():
     g = _grad("angle", [50, 50], [90, 50])
     assert _near(g.getpixel((80, 50)), (0, 0, 0)) and _near(g.getpixel((80, 49)), (255, 255, 255), 6)
     assert 110 < g.getpixel((20, 50))[0] < 145
+
+
+def test_gradient_ellipse_select_and_preserve_alpha():
+    blue = [[0, "#3a7bd5", 1], [1, "#3a7bd5", 1]]
+    base = Image.new("RGBA", (100, 100), (200, 0, 0, 255))
+    g = gradient.apply_gradient(base, {"type": "radial", "from": [50, 50], "to": [50, 0], "stops": blue,
+                                       "select": {"type": "ellipse", "box": [30, 30, 70, 70]}})
+    assert g.getpixel((50, 50))[:3] == (0x3a, 0x7b, 0xd5)
+    assert g.getpixel((32, 32)) == (200, 0, 0, 255)  # inside the rect box but outside the ellipse: untouched
+    assert g.getpixel((5, 5)) == (200, 0, 0, 255)
+    circle = Image.new("RGBA", (100, 100))
+    ImageDraw.Draw(circle).ellipse([20, 20, 80, 80], fill=(255, 255, 255, 255))
+    t = gradient.apply_gradient(circle, {"type": "linear", "from": [0, 0], "to": [99, 0], "stops": blue, "preserve_alpha": True})
+    assert t.getpixel((50, 50))[3] == 255 and t.getpixel((50, 50))[:3] == (0x3a, 0x7b, 0xd5)
+    assert t.getpixel((5, 5))[3] == 0  # transparent stays transparent
+    assert gradient.apply_gradient(circle, {"type": "linear", "stops": blue}).getpixel((5, 5))[3] == 255  # without it, the plain gradient fills
+    m = Image.new("RGBA", (100, 100))
+    m.paste((255, 255, 255, 255), (0, 0, 10, 10))
+    cv = Canvas(100, 100)
+    cv.set("M", m)
+    g = gradient.apply_gradient(base, {"stops": blue, "select": {"mask": "M"}}, cv)
+    assert g.getpixel((3, 3))[:3] == (0x3a, 0x7b, 0xd5) and g.getpixel((50, 50)) == (200, 0, 0, 255)
+    fade = gradient.apply_gradient(Image.new("RGBA", (100, 100)), {"type": "radial", "from": [50, 50], "to": [50, 30],
+                                                                  "stops": [[0, "#fff", 1], [1, "#fff", 0]]})
+    assert fade.getpixel((50, 50))[3] > 240 and fade.getpixel((5, 5))[3] == 0  # fades to clear outside the radius
 
 
 def test_gradient_stop_alpha_dither_and_select():

@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import uuid
 
+from PIL import Image
+
 from . import budget, contracts, ops
 
 MAX_SIDE = 4096
@@ -16,7 +18,36 @@ def register_action(name: str, fn) -> None:
     ACTIONS[name] = fn
 
 
-register_action("new", lambda api, name="Untitled", w=1024, h=1024, bg="#ffffff", **_: new_doc(api, name, w, h, bg))
+_P = "UEFN UI", "Icons", "Textures", "Mobile"
+PRESETS = [  # bg "" = transparent
+    {"id": "uefn_hud", "group": _P[0], "name": "HUD 1080p", "w": 1920, "h": 1080, "bg": ""},
+    {"id": "uefn_button", "group": _P[0], "name": "Button", "w": 512, "h": 128, "bg": ""},
+    {"id": "uefn_panel", "group": _P[0], "name": "Panel", "w": 1024, "h": 1024, "bg": ""},
+    {"id": "uefn_banner", "group": _P[0], "name": "Banner", "w": 1920, "h": 540, "bg": ""},
+    {"id": "icon_256", "group": _P[1], "name": "Icon 256", "w": 256, "h": 256, "bg": ""},
+    {"id": "icon_512", "group": _P[1], "name": "Icon 512", "w": 512, "h": 512, "bg": ""},
+    {"id": "icon_1024", "group": _P[1], "name": "Icon 1024", "w": 1024, "h": 1024, "bg": ""},
+    {"id": "tex_1024", "group": _P[2], "name": "Texture 1024", "w": 1024, "h": 1024, "bg": "#ffffff"},
+    {"id": "tex_2048", "group": _P[2], "name": "Texture 2048", "w": 2048, "h": 2048, "bg": "#ffffff"},
+    {"id": "tex_4096", "group": _P[2], "name": "Texture 4096", "w": 4096, "h": 4096, "bg": "#ffffff"},
+    {"id": "mobile_portrait", "group": _P[3], "name": "Phone portrait", "w": 1080, "h": 1920, "bg": "#ffffff"},
+    {"id": "mobile_landscape", "group": _P[3], "name": "Phone landscape", "w": 1920, "h": 1080, "bg": "#ffffff"},
+    {"id": "mobile_tablet", "group": _P[3], "name": "Tablet", "w": 2048, "h": 1536, "bg": "#ffffff"},
+]
+
+
+def _new_action(api, name="Untitled", w=1024, h=1024, bg="#ffffff", preset="", **_):
+    if preset:
+        p = next((x for x in PRESETS if x["id"] == preset), None)
+        if not p:
+            return budget.err(f"unknown preset {preset!r}", [x["id"] for x in PRESETS])
+        w, h, bg = p["w"], p["h"], p["bg"]
+        name = name if name != "Untitled" else p["name"]
+    return new_doc(api, name, w, h, bg)
+
+
+register_action("new", _new_action)
+register_action("presets", lambda api, **_: {"ok": True, "presets": PRESETS})
 register_action("get", lambda api, doc="", **_: get_doc(api, doc))
 register_action("list", lambda api, query="", **_: list_docs(api, query))
 register_action("delete", lambda api, doc="", **_: delete_doc(api, doc))
@@ -129,6 +160,80 @@ def layer_merge(api, doc_id: str, layer: str, into: str, by=None) -> dict:
     if res.get("rev"):  # pending (member of a live group) has no rev yet
         _rec(api, "artstudio_layer_merge", doc_id, layer, before, [])  # pixels fold; undo via a version restore
     return res
+
+
+_RESAMPLE = {"nearest": Image.NEAREST, "bilinear": Image.BILINEAR, "bicubic": Image.BICUBIC, "lanczos": Image.LANCZOS}
+
+
+def _h_canvas(cv, op):
+    """args {w, h, anchor?} crops/grows every layer around the anchor; {w, h, resample} scales them."""
+    a = op["args"]
+    nw, nh = a["w"], a["h"]
+    anchor = str(a.get("anchor", "c")).lower()
+    for word, ch in (("left", "w"), ("right", "e"), ("top", "n"), ("bottom", "s"), ("center", "c")):
+        anchor = anchor.replace(word, ch)
+    fx = 0 if "w" in anchor else 1 if "e" in anchor else 0.5
+    fy = 0 if "n" in anchor else 1 if "s" in anchor else 0.5
+    for lid, img in list(cv.layers.items()):
+        if a.get("resample"):
+            cv.layers[lid] = img.resize((nw, nh), _RESAMPLE.get(a["resample"], Image.BICUBIC))
+        else:
+            out = Image.new("RGBA", (nw, nh), (0, 0, 0, 0))
+            out.paste(img, (round((nw - img.width) * fx), round((nh - img.height) * fy)))
+            cv.layers[lid] = out
+    cv.w, cv.h = nw, nh
+
+
+def _check_canvas(op):
+    a = op["args"]
+    for k in ("w", "h"):
+        if not isinstance(a.get(k), int) or isinstance(a.get(k), bool) or not 1 <= a[k] <= MAX_SIDE:
+            raise ValueError(f"{k} must be an int 1..{MAX_SIDE}")
+    if a.get("resample") and a["resample"] not in _RESAMPLE:
+        raise ValueError(f"resample is one of {sorted(_RESAMPLE)}")
+
+
+contracts.register_op_handler("canvas", _h_canvas, "w, h, anchor? | resample?", {"w": 800, "h": 600, "anchor": "c"})
+contracts.register_op_check("canvas", _check_canvas)
+
+
+@ops.on_appended
+def _size_hook(api, doc_id, op):
+    """A canvas op (or an undo of one) changes the doc size: recompute it from the live canvas ops."""
+    if op["kind"] not in ("canvas", "undo"):
+        return
+    d = _doc(api, doc_id)
+    if "w0" not in d:
+        if op["kind"] != "canvas":
+            return
+        d["w0"], d["h0"] = d["w"], d["h"]  # size before the first canvas op; replay starts here
+    rows = ops._load(api, doc_id, 1, d["rev"])
+    gone = ops._undone(rows, d["rev"])
+    d["w"], d["h"] = d["w0"], d["h0"]
+    for o in rows:
+        if o["kind"] == "canvas" and o["rev"] not in gone:
+            d["w"], d["h"] = o["args"]["w"], o["args"]["h"]
+    api.data.put(contracts.doc_key(doc_id), d)
+
+
+def _resize(api, doc: str, args: dict, by=None) -> dict:
+    if not _doc(api, doc):
+        return {"ok": False, "error": f"no doc {doc!r}"}
+    try:
+        args = {**args, "w": int(args["w"]), "h": int(args["h"])}
+    except (TypeError, ValueError):
+        return budget.err("w and h must be numbers")
+    res = ops.append(api, doc, {"kind": "canvas", "by": by, "args": args})
+    if res.get("rev"):
+        _rec(api, "artstudio_doc_canvas", doc, "size", None, [{"command": "artstudio_undo", "params": {"doc": doc, "n": 1}}])
+        return {"ok": True, "rev": res["rev"]}
+    return res
+
+
+register_action("canvas_size", lambda api, doc="", w=1024, h=1024, anchor="c", **_:
+                _resize(api, doc, {"w": w, "h": h, "anchor": anchor or "c"}))
+register_action("image_size", lambda api, doc="", w=1024, h=1024, resample="bicubic", **_:
+                _resize(api, doc, {"w": w, "h": h, "resample": resample or "bicubic"}))
 
 
 def register(api) -> None:

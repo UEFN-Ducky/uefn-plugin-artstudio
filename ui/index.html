@@ -5,24 +5,27 @@
   <title>Art Studio</title>
   <script src="../../_kit/ducky.js"></script>
   <link rel="stylesheet" href="css/studio.css">
+  <link rel="stylesheet" href="css/controls.css">
+  <link rel="stylesheet" href="css/ai.css">
   <link rel="stylesheet" href="css/chat.css">
   <link rel="stylesheet" href="css/feedback.css">
   <link rel="stylesheet" href="panels/versions.css">
 </head>
 <body class="dk-page studio">
   <header class="studio__bar">
-    <section data-panel="menu" class="studio__menu"></section>
-    <div class="dk-row studio__docs">
-      <select class="dk-input" data-doc-select aria-label="Artwork"></select>
-      <button class="dk-btn" data-act="new" title="New artwork (Ctrl+N)">New</button>
-      <button class="dk-btn" data-act="open" title="Open image (Ctrl+O)">Open</button>
-      <button class="dk-btn" data-act="watch" aria-pressed="true" title="Watch the AI work">Watch AI</button>
-    </div>
-    <section data-panel="options" class="studio__options"></section>
+    <nav data-panel="menu" class="studio__menu" aria-label="Menu"></nav>
+    <section data-panel="options" class="studio__options" aria-label="Tool options"></section>
   </header>
 
+  <div class="studio__docbar">
+    <div class="studio__doctabs" data-doc-tabs role="tablist" aria-label="Open artwork"></div>
+    <button class="dk-btn" data-act="new" title="New artwork (Ctrl+N)">+ New</button>
+    <button class="dk-btn" data-act="open" title="Open image (Ctrl+O)">Open</button>
+    <button class="dk-btn" data-act="watch" aria-pressed="true" title="Watch the AI work">Watch AI</button>
+  </div>
+
   <main class="studio__body">
-    <aside class="dk-card studio__dock studio__dock--left">
+    <aside class="dk-card studio__tools" aria-label="Tools">
       <section data-panel="toolbar"></section>
     </aside>
 
@@ -31,31 +34,85 @@
       <div class="studio__state" data-state hidden></div>
     </div>
 
-    <aside class="dk-card studio__dock studio__dock--right">
-      <nav class="studio__tabs" role="tablist" aria-label="Panels">
-        <button class="dk-pill" role="tab" data-group="paint">Paint</button>
-        <button class="dk-pill" role="tab" data-group="layers">Layers</button>
-        <button class="dk-pill" role="tab" data-group="team">Team</button>
-      </nav>
-      <div class="studio__group" data-group-body="paint">
-        <section data-panel="color"></section>
-        <section data-panel="swatches"></section>
-        <section data-panel="brushes"></section>
-      </div>
-      <div class="studio__group" data-group-body="layers" hidden>
-        <section data-panel="layers"></section>
-        <section data-panel="history"></section>
-        <section data-panel="navigator"></section>
-      </div>
-      <div class="studio__group" data-group-body="team" hidden>
-        <section data-panel="watch" aria-label="Watch AI"></section>
-        <section data-panel="live"></section>
-        <section data-panel="versions"></section>
-        <section data-panel="feedback"></section>
-        <section data-panel="chat"></section>
-      </div>
+    <aside class="dk-card studio__dock" data-dock aria-label="Panels">
+      <div class="studio__resize" data-dock-resize tabindex="0" role="separator" aria-orientation="vertical" aria-label="Resize dock"></div>
+      <button class="dk-btn studio__dock-toggle" data-dock-toggle title="Collapse or expand the dock" aria-label="Collapse dock">⇥</button>
+
+      <section class="studio__pgroup" data-dock-group="color">
+        <nav class="studio__tabs" role="tablist" aria-label="Color">
+          <button class="dk-pill" role="tab" data-tab="color" title="Color"><span class="ic">●</span><span class="lb">Color</span></button>
+          <button class="dk-pill" role="tab" data-tab="swatches" title="Swatches"><span class="ic">▦</span><span class="lb">Swatches</span></button>
+          <button class="dk-btn studio__gmenu" data-group-menu="color" title="Panel menu" aria-label="Color panel menu">☰</button>
+          <button class="dk-btn studio__gtoggle" data-group-toggle title="Collapse group" aria-label="Collapse Color group">▾</button>
+        </nav>
+        <div class="studio__pbody" data-tab-body="color"><section data-panel="color"></section></div>
+        <div class="studio__pbody" data-tab-body="swatches" hidden><section data-panel="swatches"></section></div>
+      </section>
+
+      <div class="studio__gsplit" data-group-split role="separator" aria-orientation="horizontal" aria-label="Resize groups"></div>
+      <section class="studio__pgroup" data-dock-group="props">
+        <nav class="studio__tabs" role="tablist" aria-label="Properties">
+          <button class="dk-pill" role="tab" data-tab="properties" title="Properties"><span class="ic">▤</span><span class="lb">Properties</span></button>
+          <button class="dk-pill" role="tab" data-tab="adjustments" title="Adjustments"><span class="ic">◐</span><span class="lb">Adjustments</span></button>
+          <button class="dk-btn studio__gmenu" data-group-menu="props" title="Panel menu" aria-label="Properties panel menu">☰</button>
+          <button class="dk-btn studio__gtoggle" data-group-toggle title="Collapse group" aria-label="Collapse Properties group">▾</button>
+        </nav>
+        <div class="studio__pbody" data-tab-body="properties">
+          <section data-panel="properties"></section>
+          <section data-panel="layerstyles"></section>
+        </div>
+        <div class="studio__pbody" data-tab-body="adjustments" hidden>
+          <section data-panel="adjustments"></section>
+          <section data-panel="filters"></section>
+        </div>
+      </section>
+
+      <div class="studio__gsplit" data-group-split role="separator" aria-orientation="horizontal" aria-label="Resize groups"></div>
+      <section class="studio__pgroup" data-dock-group="layers">
+        <nav class="studio__tabs" role="tablist" aria-label="Layers">
+          <button class="dk-pill" role="tab" data-tab="layers" title="Layers"><span class="ic">☰</span><span class="lb">Layers</span></button>
+          <button class="dk-pill" role="tab" data-tab="history" title="History"><span class="ic">⟲</span><span class="lb">History</span></button>
+          <button class="dk-pill" role="tab" data-tab="navigator" title="Navigator"><span class="ic">◫</span><span class="lb">Navigator</span></button>
+          <button class="dk-btn studio__gmenu" data-group-menu="layers" title="Panel menu" aria-label="Layers panel menu">☰</button>
+          <button class="dk-btn studio__gtoggle" data-group-toggle title="Collapse group" aria-label="Collapse Layers group">▾</button>
+        </nav>
+        <div class="studio__pbody" data-tab-body="layers"><section data-panel="layers"></section></div>
+        <div class="studio__pbody" data-tab-body="history" hidden><section data-panel="history"></section></div>
+        <div class="studio__pbody" data-tab-body="navigator" hidden><section data-panel="navigator"></section></div>
+      </section>
+
+      <div class="studio__gsplit" data-group-split role="separator" aria-orientation="horizontal" aria-label="Resize groups"></div>
+      <section class="studio__pgroup" data-dock-group="brushes">
+        <nav class="studio__tabs" role="tablist" aria-label="Brushes">
+          <button class="dk-pill" role="tab" data-tab="brushes" title="Brushes"><span class="ic">✎</span><span class="lb">Brushes</span></button>
+          <button class="dk-btn studio__gmenu" data-group-menu="brushes" title="Panel menu" aria-label="Brushes panel menu">☰</button>
+          <button class="dk-btn studio__gtoggle" data-group-toggle title="Collapse group" aria-label="Collapse Brushes group">▾</button>
+        </nav>
+        <div class="studio__pbody" data-tab-body="brushes"><section data-panel="brushes"></section></div>
+      </section>
+
+      <div class="studio__gsplit" data-group-split role="separator" aria-orientation="horizontal" aria-label="Resize groups"></div>
+      <section class="studio__pgroup" data-dock-group="team">
+        <nav class="studio__tabs" role="tablist" aria-label="Team">
+          <button class="dk-pill" role="tab" data-tab="watchai" title="Watch AI"><span class="ic">◉</span><span class="lb">Watch AI</span></button>
+          <button class="dk-pill" role="tab" data-tab="versions" title="Versions"><span class="ic">⏱</span><span class="lb">Versions</span></button>
+          <button class="dk-pill" role="tab" data-tab="feedback" title="Feedback"><span class="ic">✉</span><span class="lb">Feedback</span></button>
+          <button class="dk-pill" role="tab" data-tab="chat" title="Chat"><span class="ic">✦</span><span class="lb">Chat</span></button>
+          <button class="dk-btn studio__gmenu" data-group-menu="team" title="Panel menu" aria-label="Team panel menu">☰</button>
+          <button class="dk-btn studio__gtoggle" data-group-toggle title="Collapse group" aria-label="Collapse Team group">▾</button>
+        </nav>
+        <div class="studio__pbody" data-tab-body="watchai">
+          <section data-panel="watch" aria-label="Watch AI"></section>
+          <section data-panel="live"></section>
+        </div>
+        <div class="studio__pbody" data-tab-body="versions" hidden><section data-panel="versions"></section></div>
+        <div class="studio__pbody" data-tab-body="feedback" hidden><section data-panel="feedback"></section></div>
+        <div class="studio__pbody" data-tab-body="chat" hidden><section data-panel="chat"></section></div>
+      </section>
     </aside>
   </main>
+
+  <footer class="studio__status" data-status role="status" aria-live="polite"></footer>
 
   <script type="module" src="js/app.js"></script>
 </body>

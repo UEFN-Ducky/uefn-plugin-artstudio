@@ -8,7 +8,7 @@ const CSS = `
 .br__item{display:flex;align-items:center;gap:8px;padding:4px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius,6px);color:var(--fg);cursor:pointer;text-align:left}
 .br__item:hover{border-color:var(--accent)}
 .br__item[aria-pressed="true"]{border-color:var(--accent);outline:1px solid var(--accent)}
-.br__item canvas{width:40px;height:40px;border:1px solid var(--border);border-radius:var(--radius,6px);background:var(--bg)}
+.br__item canvas{width:120px;height:32px;border:1px solid var(--border);border-radius:var(--radius,6px);background:var(--bg)}
 .br__name{flex:1}.br__meta{color:var(--muted,var(--fg));font-size:12px}
 .br__row{display:flex;align-items:center;gap:6px}
 .br__row label{width:64px}
@@ -16,6 +16,28 @@ const CSS = `
 .br__row input[type=number]{width:56px}
 .br button:focus-visible,.br input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 `;
+import { scrubField } from '../ui/scrub.js';
+
+const PW = 120, PH = 32;
+const rangeOf = (k) => FIELDS.find((f) => f[0] === k);
+let painting = false;
+export function setBrushValue(bs, k, v) {
+  if (painting) return;
+  const [, , lo, hi] = rangeOf(k);
+  bs.set({ [k]: Math.max(lo, Math.min(hi, Number(v) || lo)) });
+}
+/** Stamp centers for the preview stroke: a sine wave, spaced by spacing% of the diameter, tapered ends. */
+export function strokePoints(b, w = PW, h = PH) {
+  const d = Math.max(2, Math.min(b.size, h - 4));
+  const gap = Math.max(1, (d * b.spacing) / 100);
+  const pts = [];
+  for (let x = d / 2 + 2; x <= w - d / 2 - 2; x += gap) {
+    const t = (x - 2) / (w - 4);
+    const a = Math.max(0.1, (b.opacity / 100) * (b.hardness >= 100 ? 1 : 0.35 + 0.65 * (b.hardness / 100))) * Math.sin(Math.PI * t) ** 0.5;
+    pts.push({ x, y: h / 2 + Math.sin(t * Math.PI * 2) * (h / 2 - d / 2 - 2) * 0.6, d, a });
+  }
+  return pts;
+}
 const BRUSH_EXT = /\.(abr|brushset|bundle|png)$/i;
 const FIELDS = [['size', 'Size', 1, 500, 'px'], ['hardness', 'Hardness', 0, 100, '%'], ['spacing', 'Spacing', 1, 200, '%'],
   ['opacity', 'Opacity', 1, 100, '%'], ['flow', 'Flow', 1, 100, '%']];
@@ -49,39 +71,43 @@ export function mount(el, ctx) {
   </div>`;
   const $ = (s) => el.querySelector(s);
 
-  $('[data-fields]').innerHTML = FIELDS.map(([k, label, lo, hi, unit]) =>
-    `<div class="br__row"><label for="br-${k}">${label}</label>
-      <input type="range" data-k="${k}" min="${lo}" max="${hi}" aria-label="${label}">
-      <input class="dk-input" id="br-${k}" type="number" data-k="${k}" min="${lo}" max="${hi}"><span class="br__meta">${unit}</span></div>`).join('');
+  const fields = {};
+  FIELDS.forEach(([k, label, lo, hi, unit]) => {
+    const f = scrubField({ label, value: bs.get()[k] ?? lo, min: lo, max: hi, unit, onInput: (v) => setBrushValue(bs, k, v), onChange: (v) => setBrushValue(bs, k, v) });
+    fields[k] = f;
+    $('[data-fields]').append(f.el);
+  });
 
   function thumb(canvas, b) {
     const g = canvas.getContext('2d');
-    g.clearRect(0, 0, 40, 40);
-    if (b.thumb) {
+    g.clearRect(0, 0, PW, PH);
+    g.fillStyle = getComputedStyle(el).color; // follows the Ducky theme (--fg)
+    if (b.thumb) { // imported tip: stamp it along the stroke once loaded
       const img = new Image();
-      img.onload = () => g.drawImage(img, 2, 2, 36, 36);
+      img.onload = () => strokePoints(b, PW, PH).forEach((p) => { g.globalAlpha = p.a; g.drawImage(img, p.x - p.d / 2, p.y - p.d / 2, p.d, p.d); });
       img.src = b.thumb;
       return;
     }
-    g.fillStyle = getComputedStyle(el).color; // follows the Ducky theme (--fg)
-    g.globalAlpha = Math.max(0.15, b.hardness / 100);
-    const size = Math.min(b.size, 36);
-    if (b.shape === 'square') g.fillRect(20 - size / 2, 20 - size / 2, size, size);
-    else { g.beginPath(); g.arc(20, 20, size / 2, 0, Math.PI * 2); g.fill(); }
+    strokePoints(b, PW, PH).forEach((p) => {
+      g.globalAlpha = p.a;
+      if (b.shape === 'square') g.fillRect(p.x - p.d / 2, p.y - p.d / 2, p.d, p.d);
+      else { g.beginPath(); g.arc(p.x, p.y, p.d / 2, 0, Math.PI * 2); g.fill(); }
+    });
+    g.globalAlpha = 1;
   }
 
   function renderList() {
     const sel = bs.get().preset;
     $('[data-list]').innerHTML = brushes.map((b) =>
       `<button class="br__item" data-id="${esc(b.id)}" aria-pressed="${b.id === sel}" title="${esc(b.name)}">
-        <canvas width="40" height="40"></canvas><span class="br__name">${esc(b.name)}</span><span class="br__meta">${b.imported ? 'imported · ' : ''}${b.size}px</span></button>`).join('');
+        <canvas width="${PW}" height="${PH}"></canvas><span class="br__name">${esc(b.name)}</span><span class="br__meta">${b.imported ? 'imported · ' : ''}${b.size}px</span></button>`).join('');
     $('[data-list]').querySelectorAll('.br__item').forEach((n, i) => thumb(n.querySelector('canvas'), brushes[i]));
     $('[data-note]').textContent = note;
   }
 
   function renderFields(s) {
     const focus = document.activeElement;
-    el.querySelectorAll('[data-k]').forEach((i) => { if (i !== focus) i.value = s[i.dataset.k]; });
+    for (const k in fields) if (fields[k].input !== focus && fields[k].get() !== s[k]) { painting = true; fields[k].set(s[k]); painting = false; }
   }
 
   async function load() {
@@ -119,12 +145,6 @@ export function mount(el, ctx) {
       const { size, hardness, spacing, opacity, flow, shape } = b;
       bs.set({ preset: b.id, size, hardness, spacing, opacity, flow, shape });
     }
-  });
-  el.addEventListener('input', (ev) => {
-    const k = ev.target.dataset?.k;
-    if (!k) return;
-    const [, , lo, hi] = FIELDS.find((f) => f[0] === k);
-    bs.set({ [k]: Math.max(lo, Math.min(hi, Number(ev.target.value) || lo)) });
   });
   ctx.bus.on('cmd', ({ name }) => {
     const size = bs.get().size;

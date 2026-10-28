@@ -358,6 +358,7 @@ def _load_checkpoint(api, doc_id: str, canvas: render.Canvas, rev: int, layer_id
                     f.write(blob)
         if os.path.exists(path):
             canvas.set(lid, Image.open(path).convert("RGBA"))
+            canvas.w, canvas.h = canvas.layers[lid].size  # a canvas-size op may have changed it
             found = True
     return found
 
@@ -369,7 +370,8 @@ def replay(api, doc_id: str, upto: int | None = None, handlers: dict | None = No
     upto = doc["rev"] if upto is None else min(int(upto), doc["rev"])
     ops = _load(api, doc_id, 1, upto)
     final = _undone(ops, upto)
-    base, cv = 0, render.Canvas(doc["w"], doc["h"])
+    w0, h0 = doc.get("w0", doc["w"]), doc.get("h0", doc["h"])  # size before the first canvas op
+    base, cv = 0, render.Canvas(w0, h0)
     if use_checkpoints:
         known = set(checkpoint_revs(api, doc_id)) | ({doc["checkpoint_rev"]} if doc.get("checkpoint_rev") else set())
         for cp in sorted((c for c in known if c <= upto), reverse=True):

@@ -10,17 +10,28 @@ import { createWatch } from "./live/watch.js";
 
 registerHighlight(tools); // after the core tools, so its shortcut guard sees them
 
-// mount point -> module that exports mount(el, ctx); a missing module is skipped.
-const PANELS = {
-  menu: "./panels/menu.js", options: "./panels/tool-options.js", toolbar: "./panels/toolbar.js",
-  canvas: "./engine/engine.js", color: "./panels/color.js", swatches: "./panels/swatches.js",
-  brushes: "./panels/brushes.js", layers: "./panels/layers.js", history: "./panels/history.js",
-  navigator: "./panels/navigator.js", live: "./live/sync.js", versions: "../panels/versions.js",
-  feedback: "./feedback/popup.js", chat: "./chat/drawer.js",
-};
-const POLL_MS = 5000;
+import { PANELS, mountPanels as mountAll, mountDock, shellRun, wireModules, setFeedbackDeps, loadPanel } from "./core/dock.js";
+import * as shortcuts from "./core/shortcuts.js";
+import * as commands from "./menus/commands.js";
+import * as canvasMenu from "./menus/canvas-menu.js";
+import * as tabMenu from "./menus/tab-menu.js";
+import * as colorPicker from "./dialogs/color-picker.js";
+import * as newDocDialog from "./dialogs/new-doc.js";
+import * as taskbar from "./ai/taskbar.js";
+import * as aiActions from "./ai/ai-actions.js";
+import { dialog } from "./ui/dialog.js";
+import * as feedback from "./feedback/popup.js";
+import * as chatDrawer from "./chat/drawer.js";
+import { openShortcutsDialog } from "./dialogs/shortcuts.js";
+import { mountStatusbar, docSize } from "./core/statusbar.js";
 
-const store = createStore({ docs: [], doc: null, status: "loading", error: "", visible: true });
+const POLL_MS = 5000;
+const prefs = { // dock layout survives reloads
+  get: (k) => { try { return JSON.parse(localStorage.getItem(`artstudio.${k}`)); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(`artstudio.${k}`, JSON.stringify(v)); } catch { /* storage off */ } },
+};
+
+const store = createStore({ docs: [], doc: null, status: "loading", error: "", visible: true, zoom: 1, live: 0, ai: "idle", closed: [] });
 const handlers = new Map();
 const bus = {
   on(name, fn) { (handlers.get(name) || handlers.set(name, new Set()).get(name)).add(fn); },
@@ -53,6 +64,7 @@ function toast(msg, kind = "error") {
   setTimeout(off, 5000);
 }
 ctx.toast = toast;
+ctx.docSize = () => docSize(store.get()); // {w, h} of the open doc
 
 // Live adapter over the host bridge; live.message events arrive as {topic, data, from}.
 const liveMsgs = new Set();
@@ -133,23 +145,36 @@ async function loadDocs() {
   }
 }
 
-function renderPicker() {
-  const { docs, doc } = store.get();
-  $("[data-doc-select]").innerHTML = docs.length
-    ? docs.map((d) => `<option value="${esc(d.id)}"${d.id === doc ? " selected" : ""}>${esc(d.name || d.id)}</option>`).join("")
-    : '<option value="">No artwork</option>';
+// One pill per open doc: name, dirty dot, close ×. Right-click emits doctab.context for the menu seat.
+function renderTabs() {
+  const { docs, doc, closed } = store.get();
+  $("[data-doc-tabs]").innerHTML = docs.filter((d) => !closed.includes(d.id)).map((d) =>
+    `<button class="studio__doctab" role="tab" data-doc-tab="${esc(d.id)}" aria-selected="${d.id === doc}">${esc(d.name || d.id)}` +
+    `${d.dirty ? '<span class="studio__doctab-dot" title="Unsaved changes"></span>' : ""}` +
+    `<span class="studio__doctab-close" data-doc-close="${esc(d.id)}" role="button" aria-label="Close ${esc(d.name || d.id)}" title="Close">×</span></button>`).join("");
 }
 
+function closeTab(id) {
+  const { docs, doc, closed } = store.get();
+  const left = docs.filter((d) => d.id !== id && !closed.includes(d.id));
+  store.set({ closed: [...closed, id], doc: doc === id ? left[0]?.id || null : doc });
+}
+
+// New/Open go through the dialogs the document seat registers (ctx.dialogs.newDoc / .open); without them, defaults.
+ctx.dialogs = {};
 async function newDoc() {
-  const out = await rpc("doc_new", { name: "Untitled", w: 1024, h: 1024 }).catch((e) => ({ ok: false, error: e.message }));
+  if (ctx.openNewDoc) return ctx.openNewDoc(); // U3's New Document dialog creates the doc itself
+  const spec = ctx.dialogs.newDoc ? await ctx.dialogs.newDoc() : { name: "Untitled", w: 1024, h: 1024 };
+  if (!spec) return; // cancelled
+  const out = await rpc("doc_new", { name: "Untitled", w: 1024, h: 1024, ...spec }).catch((e) => ({ ok: false, error: e.message }));
   if (out?.ok === false) return store.set({ status: "error", error: out.error });
   await loadDocs();
-  if (out?.id) store.set({ doc: out.id });
+  if (out?.id) store.set({ doc: out.id, closed: store.get().closed.filter((c) => c !== out.id) });
 }
 
 async function openImage() {
-  const pick = await call("files.pick", { accept: "image" }).catch(() => ({ files: [] }));
-  const f = pick.files?.[0];
+  const pick = ctx.dialogs.open ? await ctx.dialogs.open() : await call("files.pick", { accept: "image" }).catch(() => ({ files: [] }));
+  const f = pick?.files?.[0];
   if (!f) return;
   const out = await rpc("open_image", { path: f.path, name: f.name }).catch((e) => ({ ok: false, error: e.message }));
   if (out?.ok === false) return store.set({ status: "error", error: out.error });
@@ -157,49 +182,12 @@ async function openImage() {
   if (out?.id) store.set({ doc: out.id });
 }
 
-// ---- dock tabs ----------------------------------------------------------
-function showGroup(name) {
-  document.querySelectorAll("[data-group]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.group === name)));
-  document.querySelectorAll("[data-group-body]").forEach((g) => { g.hidden = g.dataset.groupBody !== name; });
-}
-
 // ---- shortcuts ----------------------------------------------------------
-// Ctrl+Z dispatches `undo`; panels/engine listen with bus.on("cmd", ...).
-const KEYS = {
-  "ctrl+z": "undo", "ctrl+shift+z": "redo", "ctrl+y": "redo", "ctrl+n": "doc.new", "ctrl+o": "doc.open",
-  "ctrl+s": "save", "ctrl+a": "select.all", "ctrl+d": "select.none", "ctrl+shift+i": "select.invert",
-  "ctrl+j": "layer.duplicate", "ctrl+shift+n": "layer.new", "ctrl+0": "view.fit", "ctrl+1": "view.100",
-  "ctrl+=": "view.zoomin", "ctrl+-": "view.zoomout", "[": "brush.smaller", "]": "brush.bigger",
-  "x": "color.swap", "d": "color.reset",
-};
-function onKey(ev) {
-  if (ev.target.closest?.("input, textarea, select, [contenteditable]")) return;
-  const k = (ev.ctrlKey || ev.metaKey ? "ctrl+" : "") + (ev.shiftKey ? "shift+" : "") + ev.key.toLowerCase();
-  const cmd = KEYS[k] || KEYS[k.replace("shift+", "")];
-  if (!cmd || (ev.altKey)) {
-    // Tool keys (G, Shift+G, K…) belong to tools.handleKey; stop here so the toolbar's own listener doesn't cycle twice.
-    if (tools.handleKey(ev)) { ev.preventDefault(); ev.stopImmediatePropagation(); }
-    return;
-  }
-  ev.preventDefault();
-  if (cmd === "doc.new") return newDoc();
-  if (cmd === "doc.open") return openImage();
-  ctx.dispatch(cmd, { doc: store.get().doc });
-}
+// The map lives in core/shortcuts.js; commands reach panels/engine through bus.on("cmd", ...).
 
 // ---- panels -------------------------------------------------------------
-// Each seat ships ui/js/panels/<name>.js exporting mount(el, ctx); a missing file is skipped.
-async function mountPanels() {
-  await Promise.all(Object.entries(PANELS).map(async ([name, path]) => {
-    const el = $(`[data-panel="${name}"]`);
-    try {
-      const mod = await import(path);
-      await mod.mount?.(el, ctx);
-    } catch (err) {
-      if (!/Failed to fetch|Cannot find|error loading|Unable to resolve/i.test(err.message)) console.error(`panel ${name}: ${err.message}`);
-    }
-  }));
-}
+// Each module exports mount(el, ctx); any failure is logged and toasted by mountAll.
+const mountPanels = () => mountAll(PANELS, { find: (n) => $(`[data-panel="${n}"]`), importer: (p) => loadPanel(p, (x) => import(x)), ctx, toast });
 
 // ---- lifecycle: poll only while visible ---------------------------------
 let timer = 0;
@@ -220,25 +208,35 @@ onEvent((e) => {
 
 document.addEventListener("click", (ev) => {
   const a = ev.target.closest("[data-act]")?.dataset.act;
-  const g = ev.target.closest("[data-group]")?.dataset.group;
-  if (g) showGroup(g);
+  const close = ev.target.closest("[data-doc-close]")?.dataset.docClose;
+  const tab = ev.target.closest("[data-doc-tab]")?.dataset.docTab;
+  if (close) return closeTab(close);
+  if (tab) store.set({ doc: tab });
   if (a === "watch") {
     const w = $('[data-panel="watch"]');
-    const teamShown = !$('[data-group-body="team"]').hidden;
-    showGroup("team");
-    w.hidden = teamShown ? !w.hidden : false; // first click reveals the Team tab, next ones toggle the card
+    const shown = !w.closest("[data-tab-body]").hidden && !w.hidden;
+    dock.revealPanel("watch");
+    w.hidden = shown ? true : false; // first click reveals the Watch AI tab, next ones toggle the card
     document.querySelector('[data-act="watch"]').setAttribute("aria-pressed", String(!w.hidden));
   }
   if (a === "new") newDoc();
   if (a === "open") openImage();
   if (a === "retry") { store.set({ status: "loading" }); loadDocs(); }
 });
-$("[data-doc-select]").addEventListener("change", (ev) => store.set({ doc: ev.target.value || null }));
-document.addEventListener("keydown", onKey, true); // capture: runs before panel listeners
+document.addEventListener("contextmenu", (ev) => {
+  const id = ev.target.closest("[data-doc-tab]")?.dataset.docTab;
+  if (id) { ev.preventDefault(); bus.emit("doctab.context", { doc: id, x: ev.clientX, y: ev.clientY }); }
+});
+ctx.refreshDocs = loadDocs;
+setFeedbackDeps(ctx, { chat: chatDrawer.chat, call });
 
-store.subscribe(() => { renderState(); renderPicker(); });
+const dock = ctx.dock = mountDock($("[data-dock]"), { prefs });
+mountStatusbar($("[data-status]"), ctx);
+store.subscribe(() => { renderState(); renderTabs(); });
 store.subscribe((s) => { if (s.doc !== ctx.lastDoc) { ctx.lastDoc = s.doc; bus.emit("doc", { doc: s.doc }); } });
 
-showGroup("paint");
-mountPanels();
+mountPanels().then(() => wireModules(ctx, { shortcuts, commands, canvasMenu, tabMenu, colorPicker, newDoc: newDocDialog, taskbar, aiActions, feedback, chat: chatDrawer, dialog }, {
+  stage: $(".studio__stage"), canvas: $('[data-panel="canvas"]'), prefs,
+  run: shellRun({ newDoc, openImage, openShortcutsDialog, dispatch: ctx.dispatch, getDoc: () => store.get().doc }),
+}));
 loadDocs().then(startPoll);

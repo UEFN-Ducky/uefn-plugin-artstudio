@@ -79,6 +79,13 @@ export function pickerFromColor(hex, w, h) {
   return { hue: hsb.h, x: (hsb.s / 100) * w, y: (1 - hsb.b / 100) * h };
 }
 
+/** Typed hex ('abc', '#aabbcc') -> '#rrggbb', or null while incomplete/invalid. */
+export function normalizeHex(text) {
+  let t = String(text).trim().replace(/^#/, '');
+  if (/^[0-9a-f]{3}$/i.test(t)) t = [...t].map((c) => c + c).join('');
+  return /^[0-9a-f]{6}$/i.test(t) ? '#' + t.toLowerCase() : null;
+}
+
 export function colorsMatch(a, b, tolerance = 5) {
   const p = hexToRgb(a), q = hexToRgb(b);
   return !!p && !!q && Math.abs(p.r - q.r) < tolerance && Math.abs(p.g - q.g) < tolerance && Math.abs(p.b - q.b) < tolerance;

@@ -2,6 +2,17 @@
 import { DEFAULT_COLOR } from '../core/models.js';
 import { colorStore } from '../core/color.js';
 
+import { openMenu } from '../ui/menu.js';
+import { dialog } from '../ui/dialog.js';
+
+export const deleteSwatch = (cs, hex) => cs.set((s) => ({ swatches: s.swatches.filter((c) => c !== hex) }));
+/** Names live beside the list: swatchNames[hex] = name ('' removes). */
+export const renameSwatch = (cs, hex, name) => cs.set((s) => {
+  const names = { ...(s.swatchNames || {}) };
+  if (name.trim()) names[hex] = name.trim(); else delete names[hex];
+  return { swatchNames: names };
+});
+
 const CSS = `
 .sw{display:flex;flex-direction:column;gap:8px;padding:8px;color:var(--fg);font-family:var(--font-ui)}
 .sw__grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(22px,1fr));gap:4px}
@@ -54,8 +65,8 @@ export function mount(el, ctx) {
       + styles.map((st) => `<option value="${esc(st.id)}"${st.id === group ? ' selected' : ''}>${esc(st.name)}</option>`).join('');
     const list = current();
     $('[data-grid]').innerHTML = list.map((c) =>
-      `<button class="sw__chip" data-color="${esc(c)}" title="${esc(c)}" aria-label="${esc(c)}" aria-pressed="${c.toLowerCase() === s.foreground.toLowerCase()}" style="background:${esc(c)}"></button>`).join('');
-    $('[data-hint]').textContent = note || (list.length ? (group === 'user' ? 'Click to pick, right-click to remove.' : 'Click to pick. Palette from the style doc.') : 'No swatches.');
+      `<button class="sw__chip" data-color="${esc(c)}" title="${esc(s.swatchNames?.[c] || c)}" aria-label="${esc(s.swatchNames?.[c] || c)}" aria-pressed="${c.toLowerCase() === s.foreground.toLowerCase()}" style="background:${esc(c)}"></button>`).join('');
+    $('[data-hint]').textContent = note || (list.length ? (group === 'user' ? 'Click to pick, right-click to rename or delete.' : 'Click to pick. Palette from the style doc.') : 'No swatches.');
     $('[data-act="add"]').disabled = group !== 'user';
   };
 
@@ -81,7 +92,19 @@ export function mount(el, ctx) {
     const chip = ev.target.closest('[data-color]');
     if (!chip || group !== 'user') return;
     ev.preventDefault();
-    cs.set((s) => ({ swatches: s.swatches.filter((c) => c !== chip.dataset.color) }));
+    const hex = chip.dataset.color;
+    openMenu([
+      { label: 'Rename…', run: async () => {
+        const out = await dialog({ title: 'Rename swatch', body: (box) => {
+          const i = document.createElement('input');
+          i.className = 'dk-input'; i.value = cs.get().swatchNames?.[hex] || '';
+          box.append(i);
+          return () => ({ name: i.value });
+        } });
+        if (out) renameSwatch(cs, hex, out.name);
+      } },
+      { label: 'Delete', run: () => deleteSwatch(cs, hex) },
+    ], { x: ev.clientX, y: ev.clientY });
   });
   $('[data-group]').addEventListener('change', (ev) => { group = ev.target.value; render(); });
 

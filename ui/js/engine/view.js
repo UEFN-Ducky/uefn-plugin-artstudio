@@ -20,12 +20,19 @@ export function createView(docSize = { w: 800, h: 600 }, init = {}) {
   const s = {
     doc: { ...docSize }, vw: 800, vh: 600,
     zoom: init.zoom ?? 1, panX: init.panX ?? 0, panY: init.panY ?? 0, // panX/Y: screen px of the doc origin
+    rot: 0, // view rotation (radians) about the doc origin; rulers/grid/guides are hidden while rotated
     showRulers: init.showRulers ?? true, showGuides: init.showGuides ?? true, showGrid: init.showGrid ?? false,
     gridSize: 32, guides: [], // {axis:'h'|'v', pos:doc px}
   };
   const subs = new Set();
   const emit = () => subs.forEach((f) => f(view));
   const inset = () => (s.showRulers ? RULER : 0);
+  const centre = () => [(s.vw + inset()) / 2, (s.vh + inset()) / 2];
+  // Pan so that doc point (dx, dy) lands on screen point (ax, ay) at zoom z and the current rotation.
+  const place = (dx, dy, ax, ay, z) => {
+    const c = Math.cos(s.rot), n = Math.sin(s.rot);
+    s.panX = ax - (dx * z * c - dy * z * n); s.panY = ay - (dx * z * n + dy * z * c);
+  };
 
   const view = {
     get zoom() { return s.zoom; },
@@ -44,8 +51,17 @@ export function createView(docSize = { w: 800, h: 600 }, init = {}) {
 
     setDoc(w, h) { s.doc = { w, h }; emit(); },
     setViewport(vw, vh) { s.vw = vw; s.vh = vh; emit(); },
-    toDoc: (sx, sy) => ({ x: (sx - s.panX) / s.zoom, y: (sy - s.panY) / s.zoom }),
-    toScreen: (x, y) => ({ x: x * s.zoom + s.panX, y: y * s.zoom + s.panY }),
+    get rotation() { return s.rot; },
+    /** Screen-space centre of the canvas area (inside the rulers). */
+    get centre() { const [x, y] = centre(); return { x, y }; },
+    toDoc: (sx, sy) => {
+      const dx = sx - s.panX, dy = sy - s.panY, c = Math.cos(s.rot), n = Math.sin(s.rot);
+      return { x: (dx * c + dy * n) / s.zoom, y: (dy * c - dx * n) / s.zoom };
+    },
+    toScreen: (x, y) => {
+      const a = x * s.zoom, b = y * s.zoom, c = Math.cos(s.rot), n = Math.sin(s.rot);
+      return { x: a * c - b * n + s.panX, y: a * n + b * c + s.panY };
+    },
     /** Point-or-numbers aliases used by overlays (highlight): docToScreen({x,y}) or docToScreen(x, y). */
     docToScreen: (a, b) => (typeof a === 'object' ? view.toScreen(a.x, a.y) : view.toScreen(a, b)),
     screenToDoc: (a, b) => (typeof a === 'object' ? view.toDoc(a.x, a.y) : view.toDoc(a, b)),
@@ -54,15 +70,25 @@ export function createView(docSize = { w: 800, h: 600 }, init = {}) {
     setZoom(z, ax = (s.vw + inset()) / 2, ay = (s.vh + inset()) / 2) {
       const nz = clamp(z, ZOOM_MIN, ZOOM_MAX);
       const d = this.toDoc(ax, ay);
-      s.zoom = nz; s.panX = ax - d.x * nz; s.panY = ay - d.y * nz;
+      s.zoom = nz; place(d.x, d.y, ax, ay, nz);
       emit();
     },
+    zoomIn() { this.setZoom(s.zoom * 1.25); },
+    zoomOut() { this.setZoom(s.zoom / 1.25); },
+    zoom100() { this.setZoom(1); },
+    /** Rotate the view by rad about screen point (ax, ay), default the viewport centre. */
+    rotateBy(rad, ax = centre()[0], ay = centre()[1]) {
+      const d = this.toDoc(ax, ay);
+      s.rot += rad; place(d.x, d.y, ax, ay, s.zoom);
+      emit();
+    },
+    resetRotation() { if (s.rot) this.rotateBy(-s.rot); },
     /** Wheel zoom around the cursor: deltaY<0 zooms in (same 1.1 step as the source). */
     wheel(ev) { this.setZoom(s.zoom * (ev.deltaY < 0 ? 1.1 : 1 / 1.1), ev.x, ev.y); },
     panBy(dx, dy) { s.panX += dx; s.panY += dy; emit(); },
     /** Centre the viewport on doc point (cx, cy). */
     panTo(cx, cy) {
-      s.panX = (s.vw + inset()) / 2 - cx * s.zoom; s.panY = (s.vh + inset()) / 2 - cy * s.zoom;
+      place(cx, cy, centre()[0], centre()[1], s.zoom);
       emit();
     },
     fit(margin = 24) {
@@ -78,6 +104,7 @@ export function createView(docSize = { w: 800, h: 600 }, init = {}) {
 
     /** Paint grid + guides over the canvas. colors: {grid, guide} resolved from CSS vars by the caller. */
     drawOverlay(g, colors) {
+      if (s.rot) return; // ponytail: grid/guides are axis-aligned; add a rotated draw if rotated editing needs them
       const { zoom: z, panX, panY } = s, o = inset();
       g.save();
       g.beginPath(); g.rect(o, o, s.vw - o, s.vh - o); g.clip();
@@ -99,7 +126,7 @@ export function createView(docSize = { w: 800, h: 600 }, init = {}) {
     },
     /** Paint top and left rulers. colors: {bg, fg, border}. */
     drawRulers(g, colors) {
-      if (!s.showRulers) return;
+      if (!s.showRulers || s.rot) return;
       const { zoom: z, panX, panY } = s, step = rulerStep(z);
       g.save();
       g.fillStyle = colors.bg; g.fillRect(0, 0, s.vw, RULER); g.fillRect(0, 0, RULER, s.vh);

@@ -12,14 +12,19 @@ export function textArgs(pos, text, o = {}) {
   };
 }
 
-// ctx: { engine, getOpts(), emit(kind, layer, args), openEditor?, closeEditor? }
+// ctx: { engine, getOpts(), emit(kind, layer, args), openEditor?, closeEditor?, newTextLayer? }
 export function createTextTool(ctx) {
   let pos = null, text = '';
   const show = () => ctx.engine.view?.preview?.(pos && text ? { kind: 'text', args: textArgs(pos, text, ctx.getOpts()) } : null);
   const close = () => { pos = null; text = ''; ctx.closeEditor?.(); show(); };
+  // ctx.newTextLayer?.({name, text}) -> Promise<layer id>: Enter adds a text layer; without it the text goes on the active layer
   const commit = () => {
-    if (pos && text.trim()) ctx.emit('text', ctx.getOpts().layer, textArgs(pos, text, ctx.getOpts()));
+    const p = pos, t = text, o = ctx.getOpts();
     close();
+    if (!p || !t.trim()) return;
+    const args = textArgs(p, t, o);
+    const nl = ctx.newTextLayer?.({ name: t.trim().slice(0, 24), text: { font: args.font, size: args.size, color: args.color, align: args.align } });
+    return nl ? nl.then((id) => ctx.emit('text', id ?? o.layer, args)) : ctx.emit('text', o.layer, args);
   };
   return {
     id: 'text',

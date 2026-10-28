@@ -1,7 +1,8 @@
 """Gradient op: linear, radial, angle, diamond, reflected.
 
 args: type, from:[x,y], to:[x,y], stops:[[pos 0..1, color, alpha 0..1]], dither (default on),
-seed, opacity, select:[x0,y0,x1,y1] (only paint inside that box). Core Pillow only (no numpy).
+seed, opacity, select ([x0,y0,x1,y1] box, {type:ellipse, box} or {mask: layer id}: only paint inside it),
+preserve_alpha (only tint existing pixels; alias clip_to_layer). Core Pillow only (no numpy).
 # ponytail: per-pixel Python loop over the selection box; ~0.4 s for 512x512. Move to a C path
 # (Image.linear_gradient + ImageMath) if full-res 4k gradients get slow.
 """
@@ -11,14 +12,15 @@ from __future__ import annotations
 import math
 import random
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from .. import contracts, render
 
 TYPES = ("linear", "radial", "angle", "diamond", "reflected")
 LUT_N = 1024
-SIG = "type:linear|radial|angle|diamond|reflected, from:[x,y], to:[x,y], stops:[[pos,color,alpha]], dither?, select?:[x0,y0,x1,y1]"
-EXAMPLE = {"type": "radial", "from": [256, 256], "to": [256, 0], "stops": [[0, "#fff", 1], [1, "#000", 0]]}
+SIG = "type:linear|radial|angle|diamond|reflected, from:[x,y], to:[x,y], stops:[[pos,color,alpha]], dither?, select?:[x0,y0,x1,y1]|{type:ellipse,box}|{mask:layer}, preserve_alpha?"
+EXAMPLE = {"type": "radial", "from": [256, 256], "to": [256, 200], "select": {"type": "ellipse", "box": [200, 200, 312, 312]},
+           "preserve_alpha": True, "stops": [[0, "#3a7bd5", 1], [1, "#3a7bd5", 0]]}
 
 
 def _stops(raw) -> list:
@@ -47,8 +49,28 @@ def _ramp(stops) -> list:
     return lut
 
 
-def apply_gradient(layer_img: Image.Image, args: dict) -> Image.Image:
-    """Return a copy of `layer_img` with the gradient composited over it."""
+def _selection(sel, size, cv=None):
+    """(box, 'L' coverage or None) for select: [x0,y0,x1,y1] | {type:rect|ellipse, box} | {mask: layer id}."""
+    w, h = size
+    if isinstance(sel, dict) and sel.get("mask"):
+        img = cv.layers.get(sel["mask"]) if cv is not None else None
+        return (0, 0, w, h), (img.getchannel("A") if img is not None else Image.new("L", size, 0))
+    box = sel.get("box") if isinstance(sel, dict) else sel
+    if not box:
+        return (0, 0, w, h), None
+    cover = None
+    if isinstance(sel, dict) and sel.get("type") == "ellipse":
+        cover = Image.new("L", size, 0)
+        ImageDraw.Draw(cover).ellipse([float(v) for v in box], fill=255)
+    return box, cover
+
+
+def apply_gradient(layer_img: Image.Image, args: dict, cv=None) -> Image.Image:
+    """Return a copy of `layer_img` with the gradient composited over it.
+
+    select clips the paint (rect box, ellipse or mask layer); preserve_alpha / clip_to_layer keeps the
+    layer's own alpha, so the gradient only tints pixels that already exist.
+    """
     kind = args.get("type", "linear")
     if kind not in TYPES:
         raise ValueError(f"gradient type must be one of {TYPES}")
@@ -59,7 +81,7 @@ def apply_gradient(layer_img: Image.Image, args: dict) -> Image.Image:
     span = math.hypot(dx, dy) or 1.0
     ux, uy, a0 = dx / span, dy / span, math.atan2(dy, dx)
     lut, n1 = _ramp(_stops(args.get("stops"))), LUT_N - 1
-    sel = args.get("select") or [0, 0, w, h]
+    sel, cover = _selection(args.get("select"), (w, h), cv)
     x0, y0 = max(0, int(sel[0])), max(0, int(sel[1]))
     x1, y1 = min(w, int(math.ceil(sel[2]))), min(h, int(math.ceil(sel[3])))
     if x1 <= x0 or y1 <= y0:
@@ -93,11 +115,13 @@ def apply_gradient(layer_img: Image.Image, args: dict) -> Image.Image:
     out = layer_img.copy()
     box = (x0, y0, x1, y1)
     out.paste(Image.alpha_composite(out.crop(box), grad), box[:2])
-    return out
+    if args.get("preserve_alpha") or args.get("clip_to_layer"):
+        out.putalpha(layer_img.getchannel("A"))
+    return out if cover is None else Image.composite(out, layer_img, cover)
 
 
 def _h_gradient(cv, op):
-    cv.set(op["layer"], apply_gradient(cv.get(op["layer"]), op["args"]))
+    cv.set(op["layer"], apply_gradient(cv.get(op["layer"]), op["args"], cv))
 
 
 def _check(op):

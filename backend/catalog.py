@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
+
+log = logging.getLogger(__name__)
 
 MAX_BYTES = 4000
 
@@ -13,7 +16,7 @@ GROUPS = {
     "retouch": ("retouch", "blur_brush", "sharpen_brush", "levels", "curves", "hue_sat", "brightness_contrast",
                 "crop", "resize", "rotate", "flip", "sharpen", "blur", "denoise"),
     "fx": ("filter", "style"),
-    "transform": ("transform",),
+    "transform": ("transform", "canvas"),
     "mask": ("mask", "clip"),
     "meta": ("undo", "restore", "note"),
 }
@@ -47,6 +50,17 @@ def _registry() -> dict:
     return {}
 
 
+# Kinds the doc applies itself (no pixel handler), so register_op_handler never gave them a sig.
+_NO_HANDLER = {
+    "layer.add": ("name?, kind?, index?, id?", {"args": {"name": "Ink"}}),
+    "layer.set": ("layer, name?, visible?, opacity?, blend?, locked?, mask?", {"layer": "L2", "args": {"opacity": 0.5}}),
+    "layer.remove": ("layer", {"layer": "L2", "args": {}}),
+    "layer.move": ("layer, to:index", {"layer": "L2", "args": {"to": 0}}),
+    "note": ("text", {"args": {"text": "check the edges"}}),
+    "undo": ("target:rev of an earlier pixel op", {"args": {"target": 5}}),
+}
+
+
 def _row(kind: str, rec) -> dict:
     if isinstance(rec, dict):
         fn, sig, ex = rec.get("fn"), rec.get("sig"), rec.get("example")
@@ -54,9 +68,11 @@ def _row(kind: str, rec) -> dict:
         fn, sig, ex = (list(rec) + [None, None, None])[:3]
     else:
         fn, sig, ex = rec, None, None
-    if not sig:
-        doc = (getattr(fn, "__doc__", "") or "").strip().splitlines()
-        sig = doc[0].strip() if doc else ""
+    if kind in _NO_HANDLER and not sig:
+        sig, ex = _NO_HANDLER[kind]
+    if not sig:  # never describe a handler from its docstring: register_op_handler(kind, fn, sig, example)
+        log.warning("artstudio catalog: op kind %r has no sig", kind)
+        sig = "?"
     return {"kind": kind, "args": str(sig)[:120], "example": ex if ex is not None else ""}
 
 
@@ -83,3 +99,6 @@ def register(api):
         """
         out = build(_registry(), str(group or "").strip().lower())
         return {"ok": True, ("groups" if isinstance(out, dict) else "ops"): out}
+
+    # The panel's op dialogs (Levels, Gaussian Blur, Drop Shadow) call RPC `catalog`.
+    api.register_panel_rpc("catalog", lambda group="": artstudio_catalog(group))

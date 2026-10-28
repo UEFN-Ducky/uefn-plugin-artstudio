@@ -61,6 +61,42 @@ def test_live_registry_after_full_register():
     assert groups["retouch"] >= 11 and groups.get("other", 0) == 0, groups
 
 
+def test_every_registered_kind_has_sig_and_example():
+    import backend
+
+    class Api(_Api):
+        def tool(self, **kw):
+            return lambda fn: fn
+
+        def __getattr__(self, n):
+            return lambda *a, **k: (lambda fn: fn)
+
+    backend.register(Api())
+    reg = catalog._registry()
+    bad = []
+    for g in catalog.build(reg):
+        for r in catalog.build(reg, g):
+            if not r["args"] or r["args"] == "?" or "None singleton" in r["args"] or not isinstance(r["example"], dict) or not r["example"]:
+                bad.append(r["kind"])
+    assert not bad, bad
+
+
+def test_catalog_panel_rpc_registered(monkeypatch):
+    rpcs = {}
+
+    class Api:
+        def tool(self, **kw):
+            return lambda fn: fn
+
+        def register_panel_rpc(self, name, fn):
+            rpcs[name] = fn
+
+    monkeypatch.setattr(catalog, "_registry", _reg)
+    catalog.register(Api())
+    assert rpcs["catalog"](group="retouch")["ops"]
+    assert rpcs["catalog"]()["groups"]
+
+
 def test_paint_has_nine_rows():
     assert len(catalog.build(_reg(), "paint")) == 9
 

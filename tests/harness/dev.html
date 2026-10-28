@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>artstudio dev harness</title>
+<style>html,body{margin:0;height:100%;background:var(--bg)}#panel{width:100%;height:100%;border:0}
+#errs,#audit{display:none;white-space:pre}
+body.show #audit{display:block;position:fixed;left:0;bottom:0;max-width:100%;overflow:auto;background:var(--card);color:var(--fg);z-index:9}</style>
+</head>
+<body>
+<iframe id="panel"></iframe>
+<pre id="errs"></pre><pre id="audit"></pre>
+<script src="/harness/fake_host.js"></script>
+<script type="module">
+  // ?seed makes one blank doc first; ?step=<name> then runs that audit step (see audit.js); ?show makes #audit visible.
+  const q = new URLSearchParams(location.search), frame = document.getElementById('panel');
+  const rpc = (method, params) => fetch('/rpc', { method: 'POST', body: JSON.stringify({ method, params }) }).then((r) => r.json());
+  if (q.has('seed') && !(await rpc('doc', { action: 'list' })).docs?.length) await rpc('doc', { action: 'new', name: 'Audit', w: 256, h: 256 });
+  if (q.has('show')) document.body.classList.add('show');
+  if (!q.has('keep')) localStorage.clear(); // dock layout is saved per origin; start every audit step from the default one
+  const audit = q.get('step') ? await import('/harness/audit.js') : null; // import before src: the load event must not fire first
+  frame.src = '/ui/index.html';
+  if (audit) {
+    frame.addEventListener('load', async () => {
+      await new Promise((r) => setTimeout(r, 1500));
+      document.getElementById('audit').textContent = 'AUDIT-START\n' + (await audit.run(q.get('step'), frame.contentWindow)).join('\n') + '\nAUDIT-END';
+    });
+  }
+</script>
+</body>
+</html>

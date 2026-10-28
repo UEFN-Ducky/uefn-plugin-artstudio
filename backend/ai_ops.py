@@ -17,9 +17,12 @@ except ImportError:  # tests/test_budget.py imports backend modules top-level
     import budget
     import contracts
 
-AI_OPS = ("remove_bg", "upscale", "inpaint", "style")
+AI_OPS = ("remove_bg", "select_subject", "upscale", "inpaint", "style")
+FEATHER = 2  # px the inpaint edge fades inward, so the fill never spills outside the mask
+_CUTOUT = "Remove the background. Keep only the main subject, on a fully transparent background."
 PROMPTS = {
-    "remove_bg": "Remove the background. Keep only the main subject, on a fully transparent background.",
+    "remove_bg": _CUTOUT,
+    "select_subject": _CUTOUT,
     "upscale": "Upscale this image 2x with sharper, cleaner detail. Keep the content exactly the same.",
     "inpaint": "Repaint only the masked area so it blends with the rest: {p}",
     "style": "Restyle this image: {p}. Keep the composition, shapes and layout.",
@@ -80,7 +83,7 @@ def _layer_alpha(im):
 
 
 def run(api, op, doc_id, layer_id, prompt="", mask="", by=None):
-    from PIL import Image, ImageChops
+    from PIL import Image, ImageChops, ImageFilter
     from . import doc as docs, ops, retouch
     if op not in AI_OPS:
         return budget.err(f"op must be one of {', '.join(AI_OPS)}")
@@ -132,20 +135,30 @@ def run(api, op, doc_id, layer_id, prompt="", mask="", by=None):
         return budget.reply(doc=new["doc"], layer=new["layer"], rev=placed["rev"], w=res.width, h=res.height, via=label)
 
     res = res.resize(src.size, Image.LANCZOS) if res.size != src.size else res
-    if op == "remove_bg":  # the provider's cutout, never wider than what the source covered
+    name = f"AI {op.replace('_', ' ')}"
+    if op == "select_subject":  # the cutout's alpha, as a white-on-transparent mask layer
+        alpha = ImageChops.multiply(res.getchannel("A"), _layer_alpha(src))
+        res = Image.new("RGBA", src.size, (255, 255, 255, 255))
+        res.putalpha(alpha)
+        name = "Subject mask"
+    elif op == "remove_bg":  # the provider's cutout, never wider than what the source covered
         res.putalpha(ImageChops.multiply(res.getchannel("A"), _layer_alpha(src)))
     else:
         if mask_im is not None:  # only the masked area changes; the rest stays the source exactly
-            res = Image.composite(res, src, mask_im)
+            soft = ImageChops.darker(mask_im.filter(ImageFilter.GaussianBlur(FEATHER)), mask_im)
+            res = Image.composite(res, src, soft)
         res.putalpha(_layer_alpha(src))
+        if op == "inpaint":
+            name = f"Generative fill: {prompt[:40]}"
     idx = ids.index(layer_id) + 1
-    added = docs.layer_add(api, doc_id, name=f"AI {op.replace('_', ' ')}", index=idx, by=by)
+    added = docs.layer_add(api, doc_id, name=name, index=idx, by=by)
     if not added.get("ok"):
         return budget.err(added.get("error"))
     placed = retouch.place_image(api, doc_id, added["layer"], res, by=by)
     if not placed.get("ok"):
         return budget.err(placed.get("error"))
-    return budget.reply(doc=doc_id, layer=added["layer"], rev=placed["rev"], via=label)
+    return budget.reply(doc=doc_id, layer=added["layer"], rev=placed["rev"], via=label,
+                        mask=added["layer"] if op == "select_subject" else None)
 
 
 def dispatch(api, op, doc_id, layer="", prompt="", mask="", by=None):
@@ -161,7 +174,7 @@ def register(api):
     def artstudio_ai(op: str, doc: str, layer: str = "", prompt: str = "", mask: str = "") -> dict:
         """AI edit a layer (billed): remove_bg, upscale, inpaint, style; or stop/resume the AI on a doc.
 
-        op: remove_bg | upscale (makes a new doc) | inpaint (needs prompt + mask) | style (needs prompt)
+        op: remove_bg | select_subject (returns a mask layer id) | upscale (makes a new doc) | inpaint (needs prompt + mask) | style (needs prompt)
         | stop | resume. layer: default the top raster layer. mask: id of a layer painted where to change.
         """
         return dispatch(api, op, doc, layer, prompt, mask)

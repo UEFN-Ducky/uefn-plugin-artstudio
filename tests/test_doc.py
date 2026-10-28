@@ -146,6 +146,53 @@ def test_register_exposes_tools():
     assert t("delete", r["doc"])["ok"]
 
 
+def _flat(api, did):
+    from backend import render
+    d = doc.get_doc(api, did)
+    return render.composite(d, ops.replay(api, did, use_checkpoints=False)).tobytes()
+
+
+def test_canvas_size_anchor_replay_undo():
+    api = FakeApi()
+    t = (doc.register(api), api.tools["artstudio_doc"])[1]
+    did = t("new", name="C", w=100, h=50, bg="#ff0000")["doc"]
+    before = _flat(api, did)
+    r = t("canvas_size", did, args={"w": 1200, "h": 50, "anchor": "left"})
+    assert r["ok"] and (doc.get_doc(api, did)["w"], doc.get_doc(api, did)["h"]) == (1200, 50)
+    from backend import render
+    img = render.composite(doc.get_doc(api, did), ops.replay(api, did))
+    assert img.size == (1200, 50) and img.getpixel((0, 0))[3] == 255 and img.getpixel((150, 0))[3] == 0
+    assert _flat(api, did) == img.tobytes()  # replay with and without checkpoints agrees
+    assert ops.undo(api, did)["ok"]
+    d = doc.get_doc(api, did)
+    assert (d["w"], d["h"]) == (100, 50) and _flat(api, did) == before
+
+
+def test_image_size_resamples_and_validates():
+    api = FakeApi()
+    doc.register(api)
+    t = api.tools["artstudio_doc"]
+    did = t("new", name="I", w=40, h=40, bg="#00ff00")["doc"]
+    assert t("image_size", did, args={"w": 80, "h": 20, "resample": "lanczos"})["ok"]
+    d = doc.get_doc(api, did)
+    assert (d["w"], d["h"]) == (80, 20)
+    assert ops.replay(api, did).layers["L1"].size == (80, 20)
+    assert not t("canvas_size", did, args={"w": 99999, "h": 5})["ok"]
+    assert not t("image_size", "nope", args={"w": 5, "h": 5})["ok"]
+
+
+def test_presets():
+    api = FakeApi()
+    doc.register(api)
+    t = api.tools["artstudio_doc"]
+    ps = t("presets")["presets"]
+    assert len(ps) >= 8 and {"group", "name", "w", "h", "bg"} <= set(ps[0])
+    for pid, size in (("uefn_hud", (1920, 1080)), ("uefn_button", (512, 128))):
+        d = doc.get_doc(api, t("new", args={"preset": pid})["doc"])
+        assert (d["w"], d["h"]) == size
+    assert not t("new", args={"preset": "zzz"})["ok"]
+
+
 def test_panel_rpcs_are_the_tools():
     api = FakeApi()
     doc.register(api)

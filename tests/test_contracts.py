@@ -28,6 +28,7 @@ def test_group_e_kind_passes():
 def test_registered_kind_and_handler():
     c.register_op_handler("zzz", len, "x", {})
     assert c.validate_op(_op(kind="zzz"))["ok"] and c.op_handler("zzz") is len
+    c.OP_KINDS.pop("zzz")  # don't leak into the catalog test
 
 
 def test_op_check_hook():

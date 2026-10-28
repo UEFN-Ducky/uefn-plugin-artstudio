@@ -307,6 +307,50 @@ def test_ai_inpaint_only_in_mask_and_upscale_new_doc():
         ai._providers = old
 
 
+def test_ai_inpaint_names_layer_feathers_and_leaves_outside():
+    from backend import ops
+    api, d, ai = _ai_api()
+    ops.append(api, d, {"kind": "layer.add", "args": {"name": "mask"}})
+    ops.append(api, d, {"kind": "shape", "layer": "L2", "args": {"type": "rect", "box": [10, 5, 29, 14], "fill": "#ffffff"}})
+    before = ops.replay(api, d).get("L1")
+    old = ai._providers
+    ai._providers = _fake_provider((255, 215, 0))
+    try:
+        out = api.tools["artstudio_ai"]("inpaint", d, "L1", "gold gem", "L2")
+    finally:
+        ai._providers = old
+    assert out["ok"] and len(str(out)) <= 300
+    names = {x["id"]: x["name"] for x in api.data.get(f"doc.{d}")["layers"]}
+    assert names[out["layer"]] == "Generative fill: gold gem"
+    img = ops.replay(api, d).get(out["layer"])
+    assert img.getpixel((20, 10))[0] >= 250 and img.getpixel((20, 10))[2] < 8  # deep inside: the fill
+    assert 0 < img.getpixel((10, 10))[0] < 255 or img.getpixel((10, 10))[:3] != before.getpixel((10, 10))[:3]
+    for xy in ((9, 10), (30, 10), (20, 4), (20, 15), (0, 0), (39, 19)):  # outside the box: source untouched
+        assert img.getpixel(xy) == before.getpixel(xy), xy
+
+
+def test_ai_select_subject_returns_mask_layer():
+    from backend import ops
+    api, d, ai = _ai_api()
+    old = ai._providers
+
+    def fn(img, prompt, mask):
+        src = Image.open(img)
+        cut = Image.new("RGBA", src.size, (0, 0, 0, 0))
+        cut.paste((9, 9, 9, 255), (10, 5, 30, 15))
+        p = tempfile.mkstemp(suffix=".png")[1]
+        cut.save(p)
+        return {"ok": True, "result": {"paths": [p]}}
+    ai._providers = lambda api, out_dir: [("fake", fn)]
+    try:
+        out = api.tools["artstudio_ai"]("select_subject", d, "L1")
+    finally:
+        ai._providers = old
+    assert out["ok"] and out["mask"] == out["layer"] and len(str(out)) <= 300, out
+    m = ops.replay(api, d).get(out["mask"])
+    assert m.getpixel((20, 10)) == (255, 255, 255, 255) and m.getpixel((2, 2))[3] == 0
+
+
 def test_ai_style_pass_rpc():
     api, d, ai = _ai_api()
     assert "ai_style_pass" not in api.rpcs

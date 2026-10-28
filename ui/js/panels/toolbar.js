@@ -3,6 +3,7 @@ import { DEFAULT_COLOR } from '../core/models.js';
 import { colorStore } from '../core/color.js';
 import {
   toolsByGroup, getTool, getActive, setActive, onChange, getVariants, hasVariants, variantName, shortcutOf, handleKey,
+  bindColors, swapColors, resetColors,
 } from '../core/tools.js';
 
 const GROUPS = ['selection', 'painting', 'drawing', 'navigation'];
@@ -31,6 +32,9 @@ export const ICONS = {
   shape: '<rect x="4" y="6" width="16" height="12" rx="2"/>',
   ellipse: '<ellipse cx="12" cy="12" rx="8" ry="6"/>',
   line: '<path d="M5 19L19 5"/>',
+  crop: '<path d="M7 3v14h14M3 7h14v14"/>',
+  heal: '<rect x="4" y="9" width="16" height="6" rx="3" transform="rotate(-45 12 12)"/><path d="M12 10v4M10 12h4"/>',
+  highlight: '<path d="M14 4l6 6-8 8H8l-4 2 2-4v-4zM12 6l6 6"/>',
   hand: '<path d="M8 12V6a1 1 0 0 1 2 0v5V4a1 1 0 0 1 2 0v7V5a1 1 0 0 1 2 0v6V8a1 1 0 0 1 2 0v6a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-3l-2-4a1 1 0 0 1 2-1l2 3z"/>',
   zoom: '<circle cx="10" cy="10" r="6"/><path d="M15 15l5 5"/>',
   swap: '<path d="M7 7h12l-3-3M17 17H5l3 3"/>',
@@ -48,7 +52,8 @@ const CSS = `
 .tb{display:flex;flex-direction:column;align-items:center;gap:2px;font-family:var(--font-ui);color:var(--fg)}
 .tb__sep{align-self:stretch;height:1px;margin:4px 0;background:var(--border)}
 .tb__group{display:flex;flex-direction:column;gap:2px}
-.tb .ps-tool{font-family:inherit}
+.tb .ps-tool{font-family:inherit;position:relative}
+.tb .ps-tool__more{position:absolute;right:2px;bottom:2px;width:0;height:0;border-left:5px solid transparent;border-bottom:5px solid var(--muted);pointer-events:none}
 .tb__fly{position:fixed;z-index:2000;min-width:200px;padding:4px;background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius,8px);display:flex;flex-direction:column;gap:2px;font-family:var(--font-ui);font-size:12px}
 .tb__item{display:flex;align-items:center;gap:8px;padding:6px 8px;background:none;color:var(--fg);border:1px solid transparent;border-radius:6px;cursor:pointer;text-align:left;font:inherit}
 .tb__item:hover{background:var(--bg);border-color:var(--border)}
@@ -70,7 +75,8 @@ export function mount(el, ctx) {
     document.head.append(st);
   }
   const colors = colorStore(ctx, DEFAULT_COLOR);
-  const picked = {};          // parent tool id -> variant last chosen from its flyout
+  bindColors(colors, DEFAULT_COLOR);
+  const picked = {};          // parent tool id -> variant last chosen from its flyout / Shift+key
   let fly = null;
 
   const shown = (t) => picked[t.id] || t.id;
@@ -79,6 +85,8 @@ export function mount(el, ctx) {
   function render() {
     closeFly();
     const act = getActive();
+    const par = getTool(act)?.parent;
+    if (par) picked[par] = act;
     const groups = toolsByGroup();
     const order = [...GROUPS, ...Object.keys(groups).filter((g) => !GROUPS.includes(g))].filter((g) => groups[g]?.length);
     el.innerHTML = `<div class="ps-tools-panel tb" role="toolbar" aria-orientation="vertical" aria-label="Tools">${
@@ -86,7 +94,7 @@ export function mount(el, ctx) {
         const sid = shown(t);
         const on = isOn(t, act);
         const sc = shortcutOf(t.id);
-        return `<button class="ps-tool${on ? ' active' : ''}" data-tool="${t.id}" aria-pressed="${on}" ${hasVariants(t.id) ? 'aria-haspopup="menu"' : ''} title="${variantName(sid)}${sc ? ` (${sc})` : ''}">${icon(sid)}${hasVariants(t.id) ? '<span class="ps-tool__more" aria-hidden="true">▾</span>' : ''}</button>`;
+        return `<button class="ps-tool${on ? ' active' : ''}" data-tool="${t.id}" aria-pressed="${on}" ${hasVariants(t.id) ? 'aria-haspopup="menu"' : ''} title="${variantName(sid)}${sc ? ` (${sc})` : ''}">${icon(sid)}${hasVariants(t.id) ? '<span class="ps-tool__more" aria-hidden="true"></span>' : ''}</button>`;
       }).join('')}</div>`).join('<div class="ps-tool-separator"></div>')
     }<div class="ps-tool-separator"></div>
       <div class="ps-colors">
@@ -136,8 +144,7 @@ export function mount(el, ctx) {
     const b = ev.target.closest('[data-tool]');
     if (b) {
       const t = getTool(b.dataset.tool);
-      // corner arrow opens the flyout, the icon selects the shown variant
-      if (ev.target.closest('.ps-tool__more')) return openFly(t.id, b);
+      if (pressed) return;   // the long-press already opened the flyout
       return select(shown(t), t.variants ? t.id : null);
     }
     const c = ev.target.closest('[data-color]');
@@ -148,13 +155,24 @@ export function mount(el, ctx) {
       (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.())?.catch?.(() => {});
       return;
     }
-    ctx.dispatch(m.dataset.cmd);
+    if (m.dataset.cmd === 'color.swap') swapColors();
+    else if (m.dataset.cmd === 'color.reset') resetColors();
+    else ctx.dispatch(m.dataset.cmd);
   });
+  // long-press (400ms) on a grouped slot opens its flyout
+  let timer = 0, pressed = false;
+  el.addEventListener('pointerdown', (ev) => {
+    const b = ev.button === 0 && ev.target.closest('[data-tool]');
+    if (!b || !hasVariants(b.dataset.tool)) return;
+    timer = setTimeout(() => { pressed = true; openFly(b.dataset.tool, b); }, 400);
+  });
+  for (const t of ['pointerup', 'pointerleave', 'pointercancel']) el.addEventListener(t, () => clearTimeout(timer));
   el.addEventListener('contextmenu', (ev) => {
     const b = ev.target.closest('[data-tool]');
     if (b && hasVariants(b.dataset.tool)) { ev.preventDefault(); openFly(b.dataset.tool, b); }
   });
   document.addEventListener('click', (ev) => {
+    if (pressed) { pressed = false; return; }
     const v = ev.target.closest?.('.tb__fly [data-variant]');
     if (v) { select(v.dataset.variant, v.dataset.parent); return closeFly(); }
     if (fly && !ev.target.closest?.('.tb__fly') && !ev.target.closest?.('.ps-tool__more')) closeFly();

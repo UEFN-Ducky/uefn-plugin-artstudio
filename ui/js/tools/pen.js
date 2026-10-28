@@ -47,10 +47,10 @@ export function createPenTool(ctx) {
     ctx.engine.view?.preview?.({ kind: 'shape', args: pathArgs(a, false, ctx.getOpts()) });
   };
   const reset = () => { anchors = []; drag = null; cur = null; ctx.engine.view?.preview?.(null); };
-  const finish = (closed) => {
+  const finish = (closed, asSelection = false) => { // Ctrl+Enter turns the path into a selection
     if (anchors.length < 2) return reset();
     const o = ctx.getOpts(), args = pathArgs(anchors, closed, o);
-    if (o.mode === 'selection' && ctx.select) ctx.select(args.points);
+    if ((asSelection || o.mode === 'selection') && ctx.select) ctx.select(args.points);
     else ctx.emit('shape', o.layer, args);
     reset();
   };
@@ -78,7 +78,7 @@ export function createPenTool(ctx) {
     pointerUp() { drag = null; preview(); },
     dblClick() { anchors.pop(); finish(false); },
     key(e) {
-      if (e.key === 'Enter') finish(!e.shiftKey);
+      if (e.key === 'Enter') finish(!e.shiftKey, !!(e.ctrlKey || e.metaKey));
       else if (e.key === 'Escape') reset();
       else if (e.key === 'Backspace') { anchors.pop(); preview(); }
     },

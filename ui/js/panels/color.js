@@ -4,6 +4,34 @@ import {
   colorStore, hexToRgb, rgbToHex, rgbToHsb, hsbToRgb, rgbToLab, labToRgb,
 } from '../core/color.js';
 
+import { scrubField } from '../ui/scrub.js';
+import { open as openPicker } from '../dialogs/color-picker.js';
+
+/** Channel values of hex in a mode, and the hex after changing channel i to v. */
+export function channelValues(hex, mode) {
+  const c = hexToRgb(hex) || { r: 0, g: 0, b: 0 };
+  if (mode === 'rgb') return [c.r, c.g, c.b];
+  if (mode === 'hsb') { const h = rgbToHsb(c.r, c.g, c.b); return [h.h, h.s, h.b]; }
+  const l = rgbToLab(c.r, c.g, c.b);
+  return [l.l, l.a, l.b];
+}
+export function withChannel(hex, mode, i, v, keepHue) {
+  const vals = channelValues(hex, mode);
+  vals[i] = v;
+  if (mode === 'hsb' && i !== 0 && keepHue !== undefined) vals[0] = keepHue; // grays keep the strip's hue
+  const c = mode === 'rgb' ? { r: vals[0], g: vals[1], b: vals[2] } : mode === 'hsb' ? hsbToRgb(vals[0], vals[1], vals[2]) : labToRgb(vals[0], vals[1], vals[2]);
+  return rgbToHex(c.r, c.g, c.b);
+}
+/** Slider track: gradient stops (hex) from channel min to max, others held. */
+export function trackStops(hex, mode, i, hue) {
+  const [lo, hi] = RANGE[mode][i];
+  return [lo, hi].map((v) => withChannel(hex, mode, i, v, hue));
+}
+/** Moving channel i of the target color writes through to the store (what the sliders call). */
+export function setChannel(cs, target, mode, i, v, hue) {
+  cs.set({ [target]: withChannel(cs.get()[target], mode, i, v, hue) });
+}
+
 const SIZE = 160;
 const HUE_W = 20;
 const MODES = { hsb: ['H', 'S', 'B'], rgb: ['R', 'G', 'B'], lab: ['L', 'a', 'b'] };
@@ -24,6 +52,8 @@ const CSS = `
 .cp__row label{width:16px;text-align:right;color:var(--muted,var(--fg))}
 .cp__row input{flex:1;min-width:0}
 .cp__grow{flex:1}
+.cp__chan{display:flex;flex-direction:column;gap:2px;margin-bottom:4px}
+.cp__track{-webkit-appearance:none;appearance:none;height:8px;border-radius:var(--radius,6px);border:1px solid var(--border);width:100%;margin:0}
 .cp button:focus-visible,.cp input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 `;
 
@@ -100,11 +130,26 @@ export function mount(el, ctx) {
   };
   const setColor = (hex) => cs.set({ [target]: hex });
 
+  let chans = [];
+  let painting = false;
+  ctx.colorPicker ??= openPicker;
   const renderInputs = () => {
-    $('[data-inputs]').innerHTML = MODES[mode].map((n, i) => {
+    const host = $('[data-inputs]');
+    host.innerHTML = '';
+    chans = MODES[mode].map((n, i) => {
       const [lo, hi] = RANGE[mode][i];
-      return `<div class="cp__row"><label for="cp-v${i}">${n}</label><input class="dk-input" id="cp-v${i}" type="number" data-v="${i}" min="${lo}" max="${hi}"></div>`;
-    }).join('');
+      const row = document.createElement('div');
+      row.className = 'cp__chan';
+      const write = (v) => { if (!painting) setChannel(cs, target, mode, i, v, hue); };
+      const f = scrubField({ label: n, value: lo, min: lo, max: hi, onInput: write, onChange: write });
+      const track = document.createElement('input');
+      track.type = 'range'; track.min = lo; track.max = hi; track.className = 'cp__track';
+      track.setAttribute('aria-label', n);
+      track.addEventListener('input', () => { f.set(Number(track.value)); });
+      row.append(f.el, track);
+      host.append(row);
+      return { f, track };
+    });
     el.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
   };
 
@@ -125,7 +170,16 @@ export function mount(el, ctx) {
       chip.setAttribute('aria-pressed', String(k === target));
     }
     const focus = document.activeElement;
-    el.querySelectorAll('[data-v]').forEach((inp, i) => { if (inp !== focus) inp.value = values(hex)[i]; });
+    const vals = values(hex);
+    painting = true;
+    chans.forEach(({ f, track }, i) => {
+      if (f.input !== focus) f.set(vals[i]);
+      track.value = vals[i];
+      track.style.background = mode === 'hsb' && i === 0
+        ? `linear-gradient(to right,${[0, 60, 120, 180, 240, 300, 359].map((x) => { const c = hsbToRgb(x, 100, 100); return rgbToHex(c.r, c.g, c.b); }).join(',')})`
+        : `linear-gradient(to right,${trackStops(hex, mode, i, hue).join(',')})`;
+    });
+    painting = false;
     const hexIn = $('[data-hex]');
     if (hexIn !== focus) hexIn.value = hex.slice(1);
   };
@@ -165,6 +219,10 @@ export function mount(el, ctx) {
       const s = cs.get();
       if (!s.swatches.includes(s[target])) cs.set({ swatches: [...s.swatches, s[target]] });
     }
+  });
+  el.addEventListener('dblclick', (ev) => {
+    const chip = ev.target.closest('[data-chip]');
+    if (chip) ctx.colorPicker({ value: cs.get()[chip.dataset.chip], ctx, onPick: (hex) => cs.set({ [chip.dataset.chip]: hex }) });
   });
   el.addEventListener('input', (ev) => {
     const v = ev.target.closest('[data-v]');

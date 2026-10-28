@@ -1,0 +1,18 @@
+.ai-taskbar {
+  position: absolute; z-index: 30; display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 999px;
+  background: var(--card); color: var(--fg); border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.ai-taskbar[hidden] { display: none; }
+.ai-taskbar-grip { cursor: grab; color: var(--muted); user-select: none; }
+.ai-taskbar-prompt {
+  min-width: 200px; padding: 4px 10px; border-radius: 999px;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+}
+.ai-taskbar-btn {
+  padding: 4px 12px; border-radius: 999px; cursor: pointer;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+}
+.ai-taskbar-btn:hover { border-color: var(--purple); }
+.ai-taskbar-btn.ai-genfill { background: var(--purple); color: var(--bg); }

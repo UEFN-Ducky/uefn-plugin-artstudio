@@ -20,6 +20,23 @@ const CSS = `
 .as-hist button{background:transparent;border:0;color:var(--fg);cursor:pointer;padding:2px 4px}
 .as-hist button:focus-visible{outline:2px solid var(--accent)}
 `;
+const ICONS = { ai: "✦", human: "●" };
+// Undoable states are live pixel ops; layer.* ops cannot be undone and undo ops are not states.
+const isState = (o) => o.kind !== "undo" && !o.kind.startsWith("layer.");
+const undoneSet = (ops) => new Set(ops.filter((o) => o.kind === "undo").map((o) => o.args?.target));
+
+// Click a state: undo every live state newer than it, one call per author kind (the backend undoes per author).
+export function stepTo(call, doc, ops, rev) {
+  const gone = undoneSet(ops);
+  const newer = ops.filter((o) => isState(o) && !gone.has(o.rev) && o.rev > rev);
+  const byKind = {};
+  for (const o of newer) byKind[o.by?.kind || "ai"] = (byKind[o.by?.kind || "ai"] || 0) + 1;
+  const mixed = Object.keys(byKind).length > 1;
+  return Promise.all(Object.entries(byKind).map(([by, n]) => call("undo", { doc, n, ...(mixed && { by }) })));
+}
+// Camera button: a named snapshot is a version commit.
+export const snapshot = (call, doc, msg = "Snapshot") => call("doc", { action: "commit", doc, msg });
+
 const time = (t) => new Date(t > 1e12 ? t : t * 1000).toTimeString().slice(0, 5);
 
 export function mount(el, ctx) {
@@ -28,7 +45,8 @@ export function mount(el, ctx) {
   st.textContent = CSS;
   document.head.appendChild(st);
   el.innerHTML = `<div class="as-hist"><div class="as-hist__bar"><button class="dk-btn" data-undo-self>Undo mine</button>
-    <button class="dk-btn" data-undo-ai>Undo AI</button></div>
+    <button class="dk-btn" data-undo-ai>Undo AI</button>
+    <button class="dk-btn" data-snap title="New snapshot" aria-label="New snapshot">📷</button></div>
     <div class="as-hist__list" data-list></div><div data-msg class="dk-empty" hidden>No edits yet</div></div>`;
   const list = el.querySelector("[data-list]");
   let ops = [];
@@ -56,7 +74,8 @@ export function mount(el, ctx) {
     const gone = undone();
     el.querySelector("[data-msg]").hidden = ops.length > 0;
     list.innerHTML = [...ops].reverse().map((o) => `
-      <div class="as-op" data-rev="${o.rev}" data-undone="${gone.has(o.rev)}">
+      <div class="as-op" data-rev="${o.rev}" data-undone="${gone.has(o.rev)}"${isState(o) && !gone.has(o.rev) ? ' data-state="1" style="cursor:pointer"' : ""}>
+        <span aria-hidden="true">${ICONS[o.by?.kind] || "●"}</span>
         <span class="as-chip" data-kind="${esc(o.by?.kind)}">${esc(o.by?.label || o.by?.id || o.by?.kind)}</span>
         <span class="as-op__what">${esc(`${LABELS[o.kind] || o.kind} · ${time(o.t)}`)}</span>
         ${o.kind === "undo" || gone.has(o.rev) ? "" : `<button data-act="undo" title="Undo this edit" aria-label="Undo this edit">↶</button>`}
@@ -76,6 +95,10 @@ export function mount(el, ctx) {
     if (row && ev.target.closest('[data-act="undo"]')) {
       const op = ops.find((o) => o.rev === +row.dataset.rev);
       if (op) sendUndo(op);
+    } else if (ev.target.closest("[data-snap]")) {
+      if (doc) snapshot(rpc, doc).then(load);
+    } else if (row?.dataset.state && doc) {
+      stepTo(rpc, doc, ops, +row.dataset.rev).then(load);
     } else if (ev.target.closest("[data-undo-self]")) {
       const me = ctx.live?.selfId;
       const op = lastBy((b) => b.kind === "human" && (!me || b.id === me));

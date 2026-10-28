@@ -73,6 +73,56 @@ export function isEmpty(mask) {
   return true;
 }
 
+// Marching-ants outline: flat [x0,y0,x1,y1,...] doc-px segments between selected and unselected pixels.
+// Falls back to the bounds rectangle past `cap` segments (noisy masks) so painting stays cheap.
+export function outline(mask, w, h, cap = 200000) {
+  if (!mask) return [];
+  const on = (x, y) => x >= 0 && y >= 0 && x < w && y < h && mask[y * w + x] > 0;
+  const seg = [];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!mask[y * w + x]) continue;
+      if (!on(x, y - 1)) seg.push(x, y, x + 1, y);
+      if (!on(x, y + 1)) seg.push(x, y + 1, x + 1, y + 1);
+      if (!on(x - 1, y)) seg.push(x, y, x, y + 1);
+      if (!on(x + 1, y)) seg.push(x + 1, y, x + 1, y + 1);
+    }
+    if (seg.length > cap * 4) {
+      const b = bounds(mask, w);
+      return [b.x, b.y, b.x + b.w, b.y, b.x, b.y + b.h, b.x + b.w, b.y + b.h, b.x, b.y, b.x, b.y + b.h, b.x + b.w, b.y, b.x + b.w, b.y + b.h];
+    }
+  }
+  return seg;
+}
+
+// Exact cover of a mask by rectangles [{x,y,w,h}]: row runs, merged down while the span repeats. A rect selection is one rect.
+export function maskRects(mask, w, h) {
+  const out = [], open = new Map(); // "x0:x1" -> rect still growing
+  for (let y = 0; y <= h; y++) {
+    const seen = new Set();
+    for (let x = 0; y < h && x < w;) {
+      if (!mask[y * w + x]) { x++; continue; }
+      const x0 = x;
+      while (x < w && mask[y * w + x]) x++;
+      const k = `${x0}:${x}`; seen.add(k);
+      if (open.has(k)) open.get(k).h++;
+      else { const r = { x: x0, y, w: x - x0, h: 1 }; open.set(k, r); out.push(r); }
+    }
+    for (const k of [...open.keys()]) if (!seen.has(k)) open.delete(k);
+  }
+  return out;
+}
+
+// Selection mask from RGBA pixels: opaque-and-bright (alpha x luminance) above 50% is selected.
+export function maskFromPixels(data, w, h) {
+  const m = new Uint8Array(w * h);
+  for (let i = 0; i < m.length; i++) {
+    const a = data[i * 4 + 3] / 255, lum = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) / 255;
+    if (a * lum > 0.5) m[i] = 255;
+  }
+  return m;
+}
+
 export class Selection {
   constructor(w, h, onChange) {
     this.w = w; this.h = h; this.mask = null; this.onChange = onChange || (() => {});
@@ -84,6 +134,13 @@ export class Selection {
     return this.mask;
   }
   clear() { this.mask = null; this.onChange(this); }
+  get active() { return !!this.mask; }
+  all() { this.mask = new Uint8Array(this.w * this.h).fill(255); this.onChange(this); }
+  // Cached outline for the ants; recomputed only when the mask object changes.
+  ants() {
+    if (this._antsFor !== this.mask) { this._antsFor = this.mask; this._ants = outline(this.mask, this.w, this.h); }
+    return this._ants;
+  }
   invert() {
     const m = new Uint8Array(this.w * this.h);
     for (let i = 0; i < m.length; i++) m[i] = this.mask ? (this.mask[i] ? 0 : 255) : 0;

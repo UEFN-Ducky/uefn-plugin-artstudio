@@ -1,0 +1,38 @@
+/* Controls kit: scrub fields, popover sliders, menus, dialogs, swatches. Ducky variables only. */
+.dk-scrub { display: inline-flex; align-items: center; gap: 4px; font: inherit; color: var(--fg); }
+.dk-scrub__label { cursor: ew-resize; color: var(--muted); user-select: none; touch-action: none; }
+.dk-scrub__label:hover { color: var(--fg); }
+.dk-scrub__input { width: 52px; padding: 2px 6px; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: 6px; }
+.dk-scrub__input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dk-scrub__unit { color: var(--muted); }
+
+.dk-popslider { display: inline-flex; align-items: center; gap: 2px; }
+.dk-popslider__btn { padding: 2px 6px; color: var(--muted); background: var(--card); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.dk-popslider__btn:hover { color: var(--fg); border-color: var(--accent); }
+.dk-popslider__btn:focus-visible, .dk-btn:focus-visible, .dk-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dk-popslider__range { width: 160px; accent-color: var(--accent); }
+
+.dk-popover { position: fixed; z-index: 1000; padding: 8px; color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+
+.dk-menu { position: fixed; z-index: 1100; min-width: 180px; padding: 4px; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+.dk-menu__item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+.dk-menu__item.is-active { background: var(--accent); color: var(--bg); }
+.dk-menu__item.is-disabled { color: var(--muted); cursor: default; }
+.dk-menu__check, .dk-menu__icon { width: 14px; text-align: center; }
+.dk-menu__label { flex: 1; }
+.dk-menu__hint { margin-left: 16px; color: var(--muted); }
+.dk-menu__item.is-active .dk-menu__hint { color: inherit; }
+.dk-menu__sep { height: 1px; margin: 4px 2px; background: var(--border); }
+
+.dk-modal { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--bg) 70%, transparent); }
+.dk-dialog { min-width: 320px; max-width: 90vw; padding: 16px; display: flex; flex-direction: column; gap: 12px; color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: 14px; }
+.dk-dialog__title { font-weight: 600; }
+.dk-dialog__body { display: flex; flex-direction: column; gap: 8px; }
+.dk-dialog__foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.dk-dialog__preview { display: flex; align-items: center; gap: 4px; margin-right: auto; color: var(--muted); }
+.dk-btn { padding: 4px 14px; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; }
+.dk-btn:hover { border-color: var(--accent); }
+.dk-btn--primary { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+
+.dk-swatch { position: relative; width: 24px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.dk-swatch__native { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }

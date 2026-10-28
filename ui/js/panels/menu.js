@@ -1,7 +1,8 @@
-// Menu bar (from menu-bar.component.ts): File, Edit, Layer, Export, AI. Kept: new/open/save/undo/layers/export;
-// dropped: assignment progress, languages, kid-friendly workspace switcher, Photoshop-only menus.
+// Menu bar: File, Edit, Image, Layer, Select, Filter, AI, View, Window, Help. Menus open with the shared
+// openMenu (keyboard, flyout submenus, shortcut hints); items call ctx.dispatch commands (the U4 router).
 import { icon } from './toolbar.js';
 import { confirm } from '../core/bridge.js';
+import { openMenu } from '../ui/menu.js';
 
 // Backend panel RPCs. Names the other seats register; change here if one is renamed.
 const RPC = {
@@ -14,6 +15,18 @@ const PRESETS = [
   ['sprite_sheet', 'Sprite sheet', 'Visible layers packed + JSON'],
   ['nine_slice', '9-slice panel', 'PNG + margins JSON'],
 ];
+// kind ids are snake_case, as the filter/adjust/style dialogs expect
+const FILTERS = {
+  Blur: ['gaussian_blur', 'box_blur', 'motion_blur', 'radial_blur'],
+  Sharpen: ['sharpen', 'unsharp_mask'],
+  Noise: ['add_noise', 'median', 'despeckle'],
+  Stylize: ['pixelate', 'emboss', 'find_edges', 'posterize'],
+  Distort: ['ripple', 'twirl', 'spherize'],
+};
+const ADJUSTMENTS = ['brightness_contrast', 'levels', 'curves', 'hue_saturation', 'color_balance', 'invert'];
+const STYLES = ['drop_shadow', 'outer_glow', 'stroke', 'bevel'];
+const PANELS = ['Color', 'Swatches', 'Properties', 'Adjustments', 'Layers', 'History', 'Navigator', 'Brushes', 'Watch AI', 'Versions', 'Feedback', 'Chat'];
+const title = (s) => s.replace(/(^|_)(\w)/g, (_, d, c) => (d ? ' ' : '') + c.toUpperCase());
 
 const CSS = `
 .mb{display:flex;align-items:center;gap:4px;font-family:var(--font-ui);font-size:12px;color:var(--fg)}
@@ -21,16 +34,9 @@ const CSS = `
 .mb__top:hover{background:var(--card);border-color:var(--border)}
 .mb__top[aria-expanded="true"]{background:var(--card);border-color:var(--accent);color:var(--accent)}
 .mb__status{margin-left:8px;color:var(--muted);max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mb__menu{position:fixed;z-index:2000;min-width:240px;padding:4px;background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius,8px);display:flex;flex-direction:column;gap:2px;font-family:var(--font-ui);font-size:12px}
-.mb__item{display:flex;align-items:center;gap:8px;padding:6px 10px;background:none;color:var(--fg);border:1px solid transparent;border-radius:6px;cursor:pointer;text-align:left;font:inherit}
-.mb__item:hover:not(:disabled){background:var(--bg);border-color:var(--border)}
-.mb__item:disabled{opacity:.45;cursor:default}
-.mb__item span{flex:1}.mb__item kbd,.mb__item small{color:var(--muted);font:inherit;font-size:11px}
-.mb__sep{height:1px;margin:4px 0;background:var(--border)}
-.mb__head{padding:4px 10px;color:var(--muted);font-size:11px;text-transform:uppercase}
 .mb__ask{position:fixed;inset:0;z-index:3000;display:flex;align-items:center;justify-content:center;background:var(--bg)}
 .mb__ask>div{display:flex;flex-direction:column;gap:8px;width:360px;max-width:90vw}
-.mb button:focus-visible,.mb__menu button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.mb button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 `;
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -42,11 +48,13 @@ export function mount(el, ctx) {
     st.textContent = CSS;
     document.head.append(st);
   }
-  let menu = null;
+  let open = null;      // {name, close}
   let busy = false;
   const doc = () => ctx.store.get().doc;
   const say = (msg) => { el.querySelector('[data-status]').textContent = msg; };
   const rpc = (name, params) => ctx.rpc(name, params);
+  // run.cmd names the router command, so tests can check every item against COMMANDS
+  const go = (cmd, args) => Object.assign(() => ctx.dispatch(cmd, { doc: doc(), ...args }), { cmd });
 
   // Run a backend call with a status line; errors come back as {ok:false,error} or a thrown bridge error.
   async function run(label, name, params) {
@@ -68,12 +76,12 @@ export function mount(el, ctx) {
     }
   }
 
-  function askText(title, placeholder) {
+  function askText(titleText, placeholder) {
     return new Promise((resolve) => {
       const o = document.createElement('div');
       o.className = 'mb__ask';
-      o.innerHTML = `<div class="dk-card" role="dialog" aria-label="${esc(title)}"><strong>${esc(title)}</strong>
-        <input class="dk-input" placeholder="${esc(placeholder)}" aria-label="${esc(title)}">
+      o.innerHTML = `<div class="dk-card" role="dialog" aria-label="${esc(titleText)}"><strong>${esc(titleText)}</strong>
+        <input class="dk-input" placeholder="${esc(placeholder)}" aria-label="${esc(titleText)}">
         <small>AI actions use your credit. You will be asked to confirm before anything runs.</small>
         <div class="dk-row"><button class="dk-btn dk-btn--primary" data-ok>Continue</button><button class="dk-btn" data-no>Cancel</button></div></div>`;
       document.body.append(o);
@@ -91,103 +99,153 @@ export function mount(el, ctx) {
     });
   }
 
-  async function ai(label, name, title, placeholder) {
+  async function ai(label, name, titleText, placeholder) {
     if (!doc()) return say('Open or create an artwork first.');
-    const prompt = await askText(title, placeholder);
+    const prompt = await askText(titleText, placeholder);
     if (!prompt) return;
     if (!(await confirm(`${label} sends "${prompt}" to the AI and uses your credit. Run it?`, { title: label, confirm: 'Run' }))) return;
     run(label, name, { doc: doc(), prompt });
   }
 
-  // The layer new ops act on: the engine's active layer, else the top one.
-  async function activeLayer() {
-    const l = ctx.engine?.layers;
-    const id = l?.activeId ?? l?.active?.id ?? l?.active;
-    if (typeof id === 'string' && id) return id;
-    const d = await rpc('doc_get', { doc: doc() });
-    return d?.layers?.[d.layers.length - 1]?.id;
-  }
-  const layerOp = async (label, kind, args = {}, layer) =>
-    run(label, RPC.append, { doc: doc(), op: { kind, layer: layer ?? (await activeLayer()), args, by: ctx.by || undefined } });
-
   const exportItems = PRESETS.map(([id, name, hint]) => ({
-    label: name, hint, needsDoc: true, run: () => run(`Export ${name}`, RPC.export, { doc: doc(), preset: id }),
+    label: name, hint, run: () => run(`Export ${name}`, RPC.export, { doc: doc(), preset: id }),
   }));
+  const aiAsk = (label, cmd, args) => ({ label, run: go(cmd, args) });
 
-  const MENUS = {
+  // Built on every open so disabled state follows the current document.
+  const menus = () => ({
     File: [
-      // the shell owns doc creation/opening (it also reloads the picker)
-      { label: 'New artwork', key: 'Ctrl+N', run: () => document.querySelector('[data-act="new"]')?.click() },
-      { label: 'Open image…', key: 'Ctrl+O', run: () => document.querySelector('[data-act="open"]')?.click() },
-      { sep: 1 }, { head: 'Export as' }, ...exportItems, { sep: 1 },
-      { label: 'Send to UEFN', hint: 'Import as texture', needsDoc: true, run: () => run('Send to UEFN', RPC.toUefn, { doc: doc(), preset: 'uefn_ui' }) },
+      { label: 'New…', shortcut: 'Ctrl+N', run: go('doc.new') },
+      { label: 'Open…', shortcut: 'Ctrl+O', run: go('doc.open') },
+      { sep: 1 },
+      { label: 'Save', shortcut: 'Ctrl+S', needsDoc: 1, run: go('doc.save') },
+      { label: 'Duplicate', needsDoc: 1, run: go('doc.duplicate') },
+      { label: 'Close', shortcut: 'Ctrl+W', needsDoc: 1, run: go('doc.close') },
+      { sep: 1 },
+      { label: 'Export as', needsDoc: 1, sub: exportItems },
+      { label: 'Send to UEFN', needsDoc: 1, run: () => run('Send to UEFN', RPC.toUefn, { doc: doc(), preset: 'uefn_ui' }) },
     ],
     Edit: [
-      { label: 'Undo my last change', key: 'Ctrl+Z', needsDoc: true, run: () => run('Undo', RPC.undo, { doc: doc(), by: ctx.by || null, steps: 1 }) },
-      { label: 'Redo', key: 'Ctrl+Shift+Z', needsDoc: true, run: () => ctx.dispatch('redo', { doc: doc() }) },
+      { label: 'Undo', shortcut: 'Ctrl+Z', needsDoc: 1, run: go('undo') },
+      { label: 'Redo', shortcut: 'Ctrl+Shift+Z', needsDoc: 1, run: go('redo') },
       { sep: 1 },
-      { label: 'Select all', key: 'Ctrl+A', needsDoc: true, run: () => ctx.dispatch('select.all') },
-      { label: 'Deselect', key: 'Ctrl+D', needsDoc: true, run: () => ctx.dispatch('select.none') },
-      { label: 'Invert selection', key: 'Ctrl+Shift+I', needsDoc: true, run: () => ctx.dispatch('select.invert') },
+      { label: 'Cut', shortcut: 'Ctrl+X', needsDoc: 1, run: go('edit.cut') },
+      { label: 'Copy', shortcut: 'Ctrl+C', needsDoc: 1, run: go('edit.copy') },
+      { label: 'Paste', shortcut: 'Ctrl+V', needsDoc: 1, run: go('paste') },
+      { sep: 1 },
+      { label: 'Fill…', shortcut: 'Shift+F5', needsDoc: 1, run: go('select.fill') },
+      { label: 'Stroke…', needsDoc: 1, run: go('select.stroke') },
+      { label: 'Free Transform', shortcut: 'Ctrl+T', needsDoc: 1, run: go('transform.free') },
+      { sep: 1 },
+      { label: 'Keyboard Shortcuts…', shortcut: 'Ctrl+Alt+Shift+K', run: go('dialog.shortcuts') },
+    ],
+    Image: [
+      { label: 'Image Size…', shortcut: 'Ctrl+Alt+I', needsDoc: 1, run: go('image.image_size') },
+      { label: 'Canvas Size…', shortcut: 'Ctrl+Alt+C', needsDoc: 1, run: go('image.canvas_size') },
+      { sep: 1 },
+      { label: 'Adjustments', needsDoc: 1, sub: ADJUSTMENTS.map((k) => ({ label: title(k) + '…', run: go('adjust.open', { kind: k }) })) },
+      { label: 'Rotate', needsDoc: 1, sub: [
+        { label: '90° Clockwise', run: go('image.rotate', { deg: 90 }) },
+        { label: '90° Counter Clockwise', run: go('image.rotate', { deg: -90 }) },
+        { label: '180°', run: go('image.rotate', { deg: 180 }) },
+        { sep: 1 },
+        { label: 'Flip Horizontal', run: go('image.flip', { axis: 'h' }) },
+        { label: 'Flip Vertical', run: go('image.flip', { axis: 'v' }) },
+      ] },
+      { label: 'Crop', needsDoc: 1, run: go('image.crop') },
+      { label: 'Trim…', needsDoc: 1, run: go('image.trim') },
     ],
     Layer: [
-      { label: 'New layer', key: 'Ctrl+Shift+N', needsDoc: true, run: () => layerOp('New layer', 'layer.add', { name: 'Layer' }, '') },
-      { label: 'Duplicate layer', key: 'Ctrl+J', needsDoc: true, run: () => ctx.dispatch('layer.duplicate', { doc: doc() }) },
-      { label: 'Delete layer', needsDoc: true, run: () => layerOp('Delete layer', 'layer.remove') },
+      { label: 'New Layer', shortcut: 'Ctrl+Shift+N', needsDoc: 1, run: go('layer.new') },
+      { label: 'Duplicate Layer', shortcut: 'Ctrl+J', needsDoc: 1, run: go('layer.duplicate') },
+      { label: 'Delete Layer', needsDoc: 1, run: go('layer.delete') },
       { sep: 1 },
-      { label: 'Merge down', key: 'Ctrl+E', needsDoc: true, run: () => ctx.dispatch('layer.merge', { doc: doc() }) },
+      { label: 'Layer Style', needsDoc: 1, sub: STYLES.map((k) => ({ label: title(k) + '…', run: go('style.open', { kind: k }) })) },
+      { label: 'Add Layer Mask', needsDoc: 1, run: go('layer.maskAdd') },
+      { label: 'Create Clipping Mask', shortcut: 'Ctrl+Alt+G', needsDoc: 1, run: go('layer.clip') },
+      { label: 'Group Layers', shortcut: 'Ctrl+G', needsDoc: 1, run: go('layer.newGroup') },
+      { sep: 1 },
+      { label: 'Merge Down', shortcut: 'Ctrl+E', needsDoc: 1, run: go('layer.mergeDown') },
+      { label: 'Rasterize', needsDoc: 1, run: go('layer.rasterize') },
     ],
-    Export: exportItems,
+    Select: [
+      { label: 'All', shortcut: 'Ctrl+A', needsDoc: 1, run: go('select.all') },
+      { label: 'Deselect', shortcut: 'Ctrl+D', needsDoc: 1, run: go('select.none') },
+      { label: 'Inverse', shortcut: 'Ctrl+Shift+I', needsDoc: 1, run: go('select.invert') },
+      { sep: 1 },
+      { label: 'Feather…', shortcut: 'Shift+F6', needsDoc: 1, run: go('select.feather') },
+      { label: 'Modify', needsDoc: 1, sub: ['expand', 'contract', 'border', 'smooth'].map((m) => ({ label: title(m) + '…', run: go('select.modify', { mode: m }) })) },
+      { sep: 1 },
+      { label: 'Select Subject (AI)', needsDoc: 1, run: go('ai.selectSubject') },
+    ],
+    Filter: Object.entries(FILTERS).map(([g, ids]) => ({
+      label: g, needsDoc: 1, sub: ids.map((id) => ({ label: title(id) + '…', run: go('filter.open', { kind: id }) })),
+    })),
     AI: [
-      { label: 'UI kit…', hint: 'Buttons, panels, frames in one style', needsDoc: true, run: () => ai('UI kit', RPC.aiUiKit, 'Describe the UI kit', 'e.g. fantasy stone buttons, panel and slider') },
-      { label: 'Icon set…', hint: 'A matching set of icons', needsDoc: true, run: () => ai('Icon set', RPC.aiIconSet, 'Describe the icon set', 'e.g. 8 potion icons, hand painted') },
-      { label: 'Style pass…', hint: 'Restyle the artwork', needsDoc: true, run: () => ai('Style pass', RPC.aiStylePass, 'Describe the style', 'e.g. cartoon bold outlines') },
+      { label: 'Generative Fill…', needsDoc: 1, run: go('ai.generativeFill') },
+      { label: 'Remove Background', needsDoc: 1, run: go('ai.removeBackground') },
+      { label: 'Select Subject', needsDoc: 1, run: go('ai.selectSubject') },
+      { label: 'Upscale', needsDoc: 1, run: go('ai.upscale') },
+      { label: 'Style Pass…', needsDoc: 1, run: () => ai('Style pass', RPC.aiStylePass, 'Describe the style', 'e.g. cartoon bold outlines') },
+      aiAsk('Ask AI…', 'ai.ask'),
+      { sep: 1 },
+      { label: 'UI Kit…', needsDoc: 1, run: () => ai('UI kit', RPC.aiUiKit, 'Describe the UI kit', 'e.g. fantasy stone buttons, panel and slider') },
+      { label: 'Icon Set…', needsDoc: 1, run: () => ai('Icon set', RPC.aiIconSet, 'Describe the icon set', 'e.g. 8 potion icons, hand painted') },
     ],
-  };
+    View: [
+      { label: 'Zoom In', shortcut: 'Ctrl++', needsDoc: 1, run: go('view.zoomIn') },
+      { label: 'Zoom Out', shortcut: 'Ctrl+-', needsDoc: 1, run: go('view.zoomOut') },
+      { label: 'Fit on Screen', shortcut: 'Ctrl+0', needsDoc: 1, run: go('view.fit') },
+      { label: '100%', shortcut: 'Ctrl+1', needsDoc: 1, run: go('view.100') },
+      { sep: 1 },
+      { label: 'Rulers', shortcut: 'Ctrl+R', run: go('view.toggle', { what: 'rulers' }) },
+      { label: 'Grid', shortcut: "Ctrl+'", run: go('view.toggle', { what: 'grid' }) },
+      { label: 'Snap', shortcut: 'Ctrl+;', run: go('view.toggle', { what: 'snap' }) },
+    ],
+    Window: [
+      ...PANELS.map((p) => ({ label: p, run: go('window.toggle', { panel: p.toLowerCase().replace(/ /g, '-') }) })),
+      { sep: 1 },
+      { label: 'Reset Workspace', run: go('window.reset') },
+    ],
+    Help: [
+      { label: 'Keyboard Shortcuts…', run: go('dialog.shortcuts') },
+      { label: 'About AI Art Studio', run: go('dialog.about') },
+    ],
+  });
+
+  ctx.menuSpec = menus;   // read by tests/ui_tools.test.mjs
+
+  // Mark items that need a document as disabled when none is open (recursively).
+  const prep = (items, hasDoc) => items.map((it) => ({
+    ...it, disabled: it.disabled || (it.needsDoc && !hasDoc), sub: it.sub && prep(it.sub, hasDoc),
+  }));
 
   function closeMenu() {
-    menu?.remove();
-    menu = null;
+    open?.close();
+    open = null;
     el.querySelectorAll('.mb__top').forEach((b) => b.setAttribute('aria-expanded', 'false'));
   }
 
-  function openMenu(name, anchor) {
-    const same = anchor.getAttribute('aria-expanded') === 'true';
+  function openTop(name, anchor) {
+    const same = open?.name === name;
     closeMenu();
     if (same) return;
     anchor.setAttribute('aria-expanded', 'true');
-    const hasDoc = !!doc();
-    menu = document.createElement('div');
-    menu.className = 'mb__menu';
-    menu.setAttribute('role', 'menu');
-    menu.innerHTML = MENUS[name].map((it, i) => it.sep ? '<div class="mb__sep"></div>' : it.head ? `<div class="mb__head">${esc(it.head)}</div>`
-      : `<button class="mb__item" role="menuitem" data-i="${i}"${it.needsDoc && !hasDoc ? ' disabled' : ''}><span>${esc(it.label)}</span>${it.hint ? `<small>${esc(it.hint)}</small>` : ''}${it.key ? `<kbd>${it.key}</kbd>` : ''}</button>`).join('');
-    document.body.append(menu);
     const r = anchor.getBoundingClientRect();
-    menu.style.left = `${r.left}px`;
-    menu.style.top = `${r.bottom + 4}px`;
-    menu.addEventListener('click', (ev) => {
-      const b = ev.target.closest('[data-i]');
-      if (!b || b.disabled) return;
-      const it = MENUS[name][Number(b.dataset.i)];
-      closeMenu();
-      it.run();
-    });
-    menu.querySelector('button:not(:disabled)')?.focus();
+    const m = openMenu(prep(menus()[name], !!doc()), { x: r.left, y: r.bottom + 4, onClose: () => { if (open?.name === name) closeMenu(); } });
+    open = { name, close: m.close };
   }
 
-  el.innerHTML = `<div class="mb" role="menubar" aria-label="Menu">${Object.keys(MENUS).map((n) =>
+  el.innerHTML = `<div class="mb" role="menubar" aria-label="Menu">${Object.keys(menus()).map((n) =>
     `<button class="mb__top" role="menuitem" aria-haspopup="menu" aria-expanded="false" data-menu="${n}">${n}${n === 'AI' ? ` ${icon('wand', 12)}` : ''}</button>`).join('')}<span class="mb__status" role="status" data-status></span></div>`;
 
   el.addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-menu]');
-    if (b) openMenu(b.dataset.menu, b);
+    if (b) openTop(b.dataset.menu, b);
   });
   // hovering across the bar switches the open menu, like a desktop menu bar
   el.addEventListener('mouseover', (ev) => {
     const b = ev.target.closest?.('[data-menu]');
-    if (b && menu && b.getAttribute('aria-expanded') !== 'true') openMenu(b.dataset.menu, b);
+    if (b && open && open.name !== b.dataset.menu) openTop(b.dataset.menu, b);
   });
-  document.addEventListener('click', (ev) => { if (menu && !ev.target.closest('.mb__menu, .mb')) closeMenu(); });
-  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeMenu(); });
 }

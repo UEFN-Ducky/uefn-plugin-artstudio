@@ -165,11 +165,86 @@ export function createCatalogDialog(ctx, cfg) {
 export const ADJUST_NAMES = /^(brightness|contrast|levels|curves|exposure|hue|saturation|hue_sat|hue_saturation|vibrance|color_balance|invert|threshold|posterize|desaturate|grayscale|gradient_map)/i;
 export const isFilterRow = (r) => r.kind === 'filter';
 
-export function mount(el, ctx) {
-  const dlg = createCatalogDialog(ctx, {
-    id: 'filters', title: 'Filter', group: 'fx', kind: 'filter', select: isFilterRow,
-    choiceFilter: (c) => !ADJUST_NAMES.test(c),
+// ---- modal version: dialog() + scrubby fields, live preview, OK = one op ----------------------------
+/**
+ * cfg: { title, groups[], pick(rows, kind) -> row, mapRow?, choiceFilter?, asLayer? }; the picked row's kind is the op sent.
+ * kind = the dropdown choice or op to start on (e.g. 'gaussian_blur', 'levels').
+ * Preview draws through engine.view.preview; OK -> engine.commit(op, layer, args) (or a new adjust layer when "as layer" is ticked);
+ * Cancel reverts the preview and sends nothing. Resolves the committed args, or null.
+ */
+export async function openCatalogOp(ctx, cfg, kind) {
+  const [{ dialog }, { scrubField }] = await Promise.all([import('../ui/dialog.js'), import('../ui/scrub.js')]);
+  const rows = [];
+  try { // rpc('catalog') -> tool artstudio_catalog -> {ok, ops:[{kind,args,example}]}
+    for (const g of cfg.groups) {
+      const out = await ctx.rpc('catalog', { group: g });
+      if (out?.ok === false) throw new Error(out.error || out.err || 'catalog failed');
+      rows.push(...(out?.ops || []));
+    }
+  } catch (err) { ctx.toast?.(`Catalog unavailable: ${err.message}`); return null; }
+  const picked = cfg.pick(rows, kind);
+  if (!picked) { ctx.toast?.('No operations available.'); return null; }
+  const op = picked.kind;
+  const fields = parseParams((cfg.mapRow || ((r) => r))(picked));
+  for (const f of fields) {
+    const keep = cfg.choiceFilter && f.choices?.filter(cfg.choiceFilter);
+    if (keep?.length) { f.choices = keep; if (!keep.includes(f.value)) f.value = keep[0]; }
+    if (kind && f.choices?.includes(kind)) f.value = kind;
+  }
+  const values = Object.fromEntries(fields.map((f) => [f.key, f.value]));
+  let asLayer = false;
+  const show = (on) => ctx.engine?.view?.preview?.(on ? { kind: op, args: argsOf(fields, values) } : null);
+  const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+
+  const res = await dialog({
+    title: cfg.title,
+    preview: (on) => show(on),
+    body: (el) => {
+      for (const f of fields) {
+        if (f.type === 'number') {
+          const s = scrubField({ label: label(f.key), value: Number(f.value), min: f.min, max: Math.max(f.max, Number(f.value)), step: f.step, onInput: (v) => { values[f.key] = v; show(true); }, onChange: (v) => { values[f.key] = v; show(true); } });
+          s.el.dataset.k = f.key; el.append(s.el);
+        } else if (f.type === 'choice') {
+          const sel = mk('select', 'dk-input'); sel.dataset.k = f.key;
+          for (const c of f.choices) { const o = mk('option', '', c); o.value = c; sel.append(o); }
+          sel.value = f.value; sel.addEventListener('change', () => { values[f.key] = sel.value; show(true); });
+          el.append(mk('label', '', label(f.key)), sel);
+        } else if (f.type === 'boolean') {
+          const cb = mk('input', 'dk-check'); cb.type = 'checkbox'; cb.checked = !!f.value; cb.dataset.k = f.key;
+          cb.addEventListener('change', () => { values[f.key] = !!cb.checked; show(true); });
+          el.append(mk('label', '', label(f.key)), cb);
+        } else {
+          const t = mk('input', 'dk-input'); t.value = String(f.value ?? ''); t.dataset.k = f.key;
+          t.addEventListener('input', () => { values[f.key] = t.value; show(true); });
+          el.append(mk('label', '', label(f.key)), t);
+        }
+      }
+      if (cfg.asLayer) {
+        const cb = mk('input', 'dk-check'); cb.type = 'checkbox'; cb.dataset.k = 'asLayer';
+        cb.addEventListener('change', () => { asLayer = !!cb.checked; });
+        el.append(mk('label', '', 'As adjustment layer'), cb);
+      }
+      return () => argsOf(fields, values);
+    },
   });
-  ctx.openFilters = dlg.open;
-  ctx.bus?.on('cmd', ({ name }) => { if (name === 'filter.open') dlg.open(); });
+  show(false);
+  if (!res) return null;
+  const layer = (cfg.layer || ((c) => c.layerId?.() || c.store?.get?.().layer || c.engine?.layers?.at(-1)?.id))(ctx);
+  if (asLayer) {
+    const id = `A${Date.now().toString(36)}`;
+    await ctx.engine.commit('layer.add', id, { id, name: label(res.name || kind || op), kind: 'adjust', adjust: { kind: op, ...res } });
+  } else {
+    if (!layer) { ctx.toast?.('Select a layer first.'); return null; }
+    const out = await ctx.engine.commit(op, layer, res);
+    if (out && out.ok === false) { ctx.toast?.(out.error || 'Could not apply'); return null; }
+  }
+  return res;
+}
+
+export const FILTER_CFG = { title: 'Filter', groups: ['fx'], pick: (rows) => rows.find(isFilterRow), choiceFilter: (c) => !ADJUST_NAMES.test(c) };
+export const open = (ctx, kind) => openCatalogOp(ctx, FILTER_CFG, kind);
+
+export function mount(el, ctx) {
+  ctx.openFilters = (kind) => open(ctx, kind);
+  ctx.bus?.on('cmd', ({ name, kind }) => { if (name === 'filter.open') open(ctx, kind); });
 }

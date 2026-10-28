@@ -56,7 +56,7 @@ const inQuad = (q, p) => {
   return !(neg && pos);
 };
 
-// ctx: { engine, getOpts(), emit(kind, layer, args) }
+// ctx: { engine, getOpts(), emit(kind, layer, args), zoom?() }
 export function createTransformHandles(ctx) {
   let src = null, quad = null, layer = null, mode = 'free', warp = null, drag = null, active = false;
 
@@ -104,13 +104,13 @@ export function createTransformHandles(ctx) {
       return a;
     },
     hit(p, e = {}) {
-      const pt = [p.x, p.y];
+      const pt = [p.x, p.y], tol = HIT / (ctx.zoom?.() || 1); // handles stay ~7 screen px at any zoom
       if (mode === 'warp') {
-        const i = warp.findIndex((w) => len(sub(w, pt)) <= HIT);
+        const i = warp.findIndex((w) => len(sub(w, pt)) <= tol);
         return i >= 0 ? { kind: 'warp', i } : inQuad(quad, pt) ? { kind: 'move' } : null;
       }
       const hp = handlePositions(quad);
-      for (const n of HANDLE_NAMES) if (len(sub(hp[n], pt)) <= HIT) return { kind: 'handle', name: n };
+      for (const n of HANDLE_NAMES) if (len(sub(hp[n], pt)) <= tol) return { kind: 'handle', name: n };
       return inQuad(quad, pt) ? { kind: 'move' } : { kind: 'rotate' };
     },
     pointerDown(p, e = {}) {
