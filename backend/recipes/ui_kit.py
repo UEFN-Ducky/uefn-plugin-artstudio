@@ -7,8 +7,11 @@ Pure op generation: no pixels here. Each part becomes one doc; ops go through
 AI menu RPCs `ai_ui_kit` / `ai_icon_set`.
 """
 import math
+import random
 
-PARTS = ("panel", "button_normal", "button_hover", "button_pressed", "frame")
+from .. import vector
+
+PARTS = ("panel", "button_normal", "button_hover", "button_pressed", "frame", "close")
 
 # ponytail: built-in fallback palettes; styles.py presets override via get_style
 _FALLBACK = {
@@ -43,53 +46,198 @@ def shift(args, ox, oy):
         b = a["box"]
         a["box"] = [b[0] + ox, b[1] + oy, b[2] + ox, b[3] + oy]
     if "pts" in a:
-        a["pts"] = [[x + ox, y + oy] for x, y in a["pts"]]
+        a["pts"] = [[p[0] + ox, p[1] + oy] + list(p[2:]) for p in a["pts"]]
+    if "text" in a:
+        a["x"], a["y"] = a.get("x", 0) + ox, a.get("y", 0) + oy
     return a
 
 
-def _ops(part, size, pal, seed):
-    s, m = size, max(8, size // 10)
-    r = max(6, size // 8)
-    base, ink, acc, shade = pal["base"], pal["ink"], pal["accent"], pal["shade"]
-    lw = max(2, size // 64)
-    body = {"normal": base, "hover": _tint(base, 0.25), "pressed": _tint(base, -0.2)}
-    state = part.split("_", 1)[1] if part.startswith("button_") else None
-    ops = []
-    if part == "frame":
-        ops.append(("shape", "frame", {"type": "round_rect", "box": [0, 0, s, s], "r": r,
-                   "fill": acc, "stroke": ink, "width": lw, "wobble": 1.0, "seed": seed}))
-        ops.append(("shape", "frame", {"type": "round_rect", "box": [2 * m, 2 * m, s - 2 * m, s - 2 * m],
-                   "r": r // 2, "fill": None, "stroke": ink, "width": lw, "wobble": 1.0, "seed": seed + 1}))
-    else:
-        fill = body[state] if state else base
-        ops.append(("shape", "body", {"type": "round_rect", "box": [0, 0, s, s], "r": r,
-                   "fill": fill, "stroke": ink, "width": lw, "wobble": 1.0, "seed": seed}))
-        # inner highlight line; pressed flips to shade (looks sunk)
-        y = m if state != "pressed" else s - m
-        ops.append(("stroke", "body", {"pts": [[r, y], [s - r, y]],
-                   "color": shade if state == "pressed" else _tint(base, 0.6), "size": lw}))
-    ops.append(("filter", "paper", {"name": "noise", "amount": 6, "mono": True, "seed": seed}))
+def get_material(style):
+    """-> {wood: mid-wood hex | None, gold: trim hex | None} from the style preset (optional keys)."""
+    try:
+        from . import styles
+        s = styles.get_style(style) or {}
+    except Exception:
+        s = {}
+    return {"wood": s.get("wood") if s.get("material") == "wood" else None, "gold": s.get("gold")}
+
+
+# natural pixel sizes at size=640 (panel width); the kit scales uniformly with `size`
+NAT = {"panel": (640, 420), "button_normal": (320, 96), "button_hover": (320, 96),
+       "button_pressed": (320, 96), "frame": (640, 420), "close": (96, 96)}
+POS = {"panel": (0, 0), "button_normal": (680, 0), "button_hover": (680, 120),
+       "button_pressed": (680, 240), "close": (680, 360), "frame": (0, 460)}
+SHEET = (1000, 880)  # natural size of the whole kit sheet
+LABEL_WORDS = ("play", "settings", "options", "quit", "shop", "start", "exit", "back", "continue",
+               "resume", "store", "credits")
+
+
+def sheet_size(size):
+    """Pixel size of the sheet holding every part when the panel is `size` wide."""
+    return round(SHEET[0] * size / 640), round(SHEET[1] * size / 640)
+
+
+def fit_size(w, h):
+    """Panel width so the whole sheet fits a w x h doc."""
+    return max(64, int(640 * min(w / SHEET[0], h / SHEET[1])))
+
+
+def _ring(box, r, amp, seed):
+    """Hand-drawn closed round-rect outline as brush points."""
+    x0, y0, x1, y1 = box
+    pts = vector.wobble_points(vector._round_rect(x0, y0, x1 - x0, y1 - y0, r), amp, True, seed)
+    pts.append(pts[0])
+    return [[round(x, 1), round(y, 1)] for x, y in pts]
+
+
+def _ink(pts, color, size, seed):
+    return ("stroke", "body", {"pts": pts, "color": color, "size": size, "hardness": 0.85,
+                               "spacing": 0.2, "size_jitter": 0.12, "seed": seed})
+
+
+def _rr(box, r, **kw):
+    return ("shape", "body", dict({"type": "round_rect", "box": [round(v, 1) for v in box], "r": r}, **kw))
+
+
+def _inset(box, d):
+    return [box[0] + d, box[1] + d, box[2] - d, box[3] - d]
+
+
+def _wood(box, r, base, u, seed, planks):
+    """Wood: mid-tone plate, wavy light/dark grain strokes, dark plank seams. All strokes stay inside the plate."""
+    x0, y0, x1, y1 = box
+    rnd = random.Random(seed)
+    ix0, ix1 = x0 + r * 0.8, x1 - r * 0.8
+    n = max(2, int((y1 - y0 - 8) / max(4.0, 10 * u)))
+    ops = [_rr(box, r, fill=base)]
+    for i in range(n):
+        y = y0 + 4 + (i + 0.5) * (y1 - y0 - 8) / n
+        pts, drift = [], 0.0
+        for j in range(6):
+            drift = max(-3 * u, min(3 * u, drift + rnd.uniform(-1.5, 1.5) * u))
+            pts.append([round(ix0 + (ix1 - ix0) * j / 5, 1), round(y + drift, 1)])
+        ops.append(("stroke", "body", {
+            "pts": pts, "color": _tint(base, -0.4 if i % 2 else 0.3), "size": round(max(1.5, rnd.uniform(1.5, 3.5) * max(u, 0.6)), 1),
+            "opacity": round(rnd.uniform(0.25, 0.5), 2), "hardness": 0.6, "spacing": 0.5, "seed": seed + i}))
+    for j in range(1, planks):
+        y = round(y0 + j * (y1 - y0) / planks, 1)
+        ops.append(("stroke", "body", {"pts": [[x0 + 3, y], [x1 - 3, y]], "color": _tint(base, -0.55),
+                                       "size": max(2, round(3 * u)), "opacity": 0.8, "hardness": 1.0, "spacing": 0.3}))
     return ops
 
 
-def artstudio_ui_kit(style="paper", parts=None, size=512, new_doc=None, add_op=None, seed=7):
-    """Build a UI kit. Returns {ok, docs:[{name,doc,w,h,n_ops,ops}], slice:{l,t,r,b}}."""
+def _ops(part, w, h, u, pal, mat, seed, label=None, title=None):
+    """Ops for one part drawn on its own w x h layer 'body'. Returns [(kind, layer, args)]."""
+    base, ink, acc = pal["base"], pal["ink"], pal["accent"]
+    wood = mat["wood"]
+    gold = mat["gold"] or acc
+    state = part.split("_", 1)[1] if part.startswith("button_") else None
+    tone = {"normal": 0, "hover": 0.22, "pressed": -0.25}.get(state, 0)
+    pad = max(4, round(8 * u))
+    lw = max(2, round(4 * u))
+    amp = 0.6 + 1.2 * u
+    text_col, shadow = (base, ink) if wood else (ink, None)
+    styles = []
+    ops = []
+
+    def body(box, r, color, planks=1):
+        ops.extend(_wood(box, r, _tint(color, tone), u, seed, planks) if wood else [_rr(box, r, fill=_tint(color, tone))])
+
+    def words(txt, cx, cy, size):
+        if shadow:
+            ops.append(("text", "body", {"text": txt, "x": cx + max(2, round(3 * u)), "y": cy + max(2, round(3 * u)),
+                                         "size": size, "font": "title", "color": shadow, "anchor": "mm"}))
+        ops.append(("text", "body", {"text": txt, "x": cx, "y": cy, "size": size, "font": "title",
+                                     "color": text_col, "anchor": "mm"}))
+
+    def trim_style():
+        styles.append({"name": "stroke", "color": _tint(gold, tone), "size": max(2, round(5 * u)), "pos": "outside"})
+        styles.append({"name": "bevel", "size": max(3, round(8 * u)), "depth": 120})
+
+    if part in ("panel", "frame"):
+        box, r = [pad, pad, w - pad, h - pad], round(26 * u)
+        body(box, r, wood or base, 3)
+        if part == "frame":
+            fw = round(56 * u)
+            inner = _inset(box, fw)
+            e = max(6, round(16 * u))  # erase the center with rows of round dabs
+            ys = [inner[1] + e / 2 + i * e * 0.75 for i in range(int((inner[3] - inner[1] - e) / (e * 0.75)) + 1)] + [inner[3] - e / 2]
+            for y in ys:
+                ops.append(("stroke", "body", {"pts": [[inner[0] + e / 2, y], [inner[2] - e / 2, y]], "size": e, "erase": True,
+                                               "hardness": 1.0, "spacing": 0.25, "pressure_size": False}))
+            ops.append(_ink(_ring(inner, max(2, round(4 * u)), amp, seed + 20), ink, lw, seed + 21))
+        ops.append(_ink(_ring(box, r, amp, seed + 10), ink, lw + 1, seed + 11))
+        g = round(14 * u)
+        ops.append(_rr(_inset(box, g), round(r * 0.6), fill=None, stroke=gold, width=max(2, round(4 * u)),
+                       wobble=round(amp * 0.6, 2), seed=seed + 30))
+        if part == "panel":
+            d = round(20 * u)
+            for cx, cy in ((box[0] + g, box[1] + g), (box[2] - g, box[1] + g), (box[0] + g, box[3] - g), (box[2] - g, box[3] - g)):
+                ops.append(("shape", "body", {"type": "polygon", "pts": [[cx, cy - d], [cx + d, cy], [cx, cy + d], [cx - d, cy]],
+                                              "fill": gold, "stroke": ink, "width": max(2, round(2 * u))}))
+                ops.append(("shape", "body", {"type": "ellipse", "box": [cx - 6 * u, cy - 6 * u, cx + 6 * u, cy + 6 * u],
+                                              "fill": acc, "stroke": ink, "width": max(1, round(2 * u))}))
+            if title:
+                words(title, w / 2, 46 * u, max(16, round(52 * u)))
+        trim_style()
+    elif part == "close":
+        box = [pad, pad, w - pad, h - pad]
+        r = (box[2] - box[0]) / 2
+        body(box, r, acc if wood else base)
+        ops.append(_ink(_ring(box, r, amp, seed + 10), ink, lw, seed + 11))
+        ops.append(_rr(_inset(box, round(7 * u)), r, fill=None, stroke=gold, width=max(2, round(3 * u))))
+        c, d = w / 2, w * 0.2
+        for col, size in ((ink, max(6, round(14 * u))), (base, max(4, round(9 * u)))):
+            for a, b in (((c - d, c - d), (c + d, c + d)), ((c + d, c - d), (c - d, c + d))):
+                ops.append(("stroke", "body", {"pts": [list(a), list(b)], "color": col, "size": size, "hardness": 0.9, "spacing": 0.2}))
+        trim_style()
+    else:  # button states
+        lip = max(3, round(6 * u))
+        top = pad + (2 if state == "pressed" else 0)  # pressed sits 2 px lower
+        box = [pad, top, w - pad, top + h - 2 * pad - lip]
+        r = round(22 * u)
+        if state != "pressed":
+            ops.append(_rr([box[0], box[1] + lip * 0.7, box[2], box[3] + lip], r, fill=_tint(wood or base, -0.55 + tone)))
+        body(box, r, wood or base)
+        ops.append(_ink(_ring(box, r, amp, seed + 10), ink, lw, seed + 11))
+        ops.append(_rr(_inset(box, round(8 * u)), round(r * 0.6), fill=None, stroke=_tint(gold, tone), width=max(2, round(3 * u)),
+                       wobble=round(amp * 0.5, 2), seed=seed + 30))
+        if label:
+            words(label, w / 2, (box[1] + box[3]) / 2, max(14, round(50 * u)))
+        trim_style()
+        if state == "hover":
+            styles.append({"name": "glow", "color": "#ffe9a0", "size": max(6, round(14 * u)), "opacity": 0.85})
+        elif state == "pressed":
+            styles.append({"name": "inner_shadow", "size": max(3, round(8 * u)), "distance": 3, "opacity": 0.7})
+    ops.append(("filter", "body", {"name": "noise", "amount": 7, "mono": True, "seed": seed}))
+    ops.extend(("style", "body", st) for st in styles)
+    return ops
+
+
+def artstudio_ui_kit(style="paper", parts=None, size=640, new_doc=None, add_op=None, seed=7, labels=None):
+    """Build a UI kit; `size` = panel width (buttons 1/2 of it). `labels`: button text, 2nd = panel title.
+
+    Returns {ok, docs:[{name,doc,w,h,x,y,n_ops,ops}], slice:{l,t,r,b}}; x,y = place on the kit sheet.
+    """
     parts = list(parts or PARTS)
     bad = [p for p in parts if p not in PARTS]
     if bad:
         return {"ok": False, "error": "unknown parts %s; use %s" % (bad, list(PARTS))}
     size = max(64, int(size))
-    pal = get_palette(style)
+    u = size / 640
+    pal, mat = get_palette(style), get_material(style)
     margin = max(8, round(size * 48 / 512))  # panel 512 -> slice 48
+    labels = [str(t).upper() for t in (labels or [])]
     docs = []
     for i, part in enumerate(parts):
-        ops = _ops(part, size, pal, seed + i)
-        doc = new_doc("%s_%s" % (style, part), size, size) if new_doc else None
+        w, h = (max(16, round(v * u)) for v in NAT[part])
+        ops = _ops(part, w, h, u, pal, mat, seed + i * 100, labels[0] if labels else None, labels[1] if len(labels) > 1 else None)
+        doc = new_doc("%s_%s" % (style, part), w, h) if new_doc else None
         if add_op and doc is not None:
             for kind, layer, args in ops:
                 add_op(doc, kind, layer, args)
-        docs.append({"name": part, "doc": doc, "w": size, "h": size, "n_ops": len(ops),
-                     "ops": [{"kind": k, "layer": l, "args": a} for k, l, a in ops]})
+        docs.append({"name": part, "doc": doc, "w": w, "h": h, "x": round(POS[part][0] * u), "y": round(POS[part][1] * u),
+                     "n_ops": len(ops), "ops": [{"kind": k, "layer": l, "args": a} for k, l, a in ops]})
     return {"ok": True, "style": style, "palette": pal, "docs": docs,
             "slice": {"l": margin, "t": margin, "r": margin, "b": margin}}
 
@@ -127,7 +275,11 @@ def run_recipe(api, which, doc_id, prompt="", by=None, style=""):
     cols = math.ceil(math.sqrt(len(names)))
     rows = math.ceil(len(names) / cols)
     cell = max(64, min(d["w"] // cols, d["h"] // rows))
-    res = artstudio_ui_kit(style, names, cell) if which == "ui_kit" else icons.artstudio_icon_set(style, names, cell)
+    if which == "ui_kit":
+        words = [x for x in str(prompt).lower().replace(",", " ").split() if x in LABEL_WORDS]
+        res = artstudio_ui_kit(style, names, fit_size(d["w"], d["h"]), labels=words)
+    else:
+        res = icons.artstudio_icon_set(style, names, cell)
     if not res["ok"]:
         return res
     used = {x["id"] for x in d["layers"]}
@@ -139,7 +291,7 @@ def run_recipe(api, which, doc_id, prompt="", by=None, style=""):
             lid = "%s_%s%d" % (which, part["name"], n)
         used.add(lid)
         layers.append(lid)
-        ox, oy = (i % cols) * cell, (i // cols) * cell
+        ox, oy = part.get("x", (i % cols) * cell), part.get("y", (i // cols) * cell)
         batch.append({"kind": "layer.add", "layer": lid, "by": by, "args": {"id": lid, "name": part["name"]}})
         for o in part["ops"]:
             batch.append({"kind": o["kind"], "layer": lid, "by": by, "args": shift(o["args"], ox, oy)})

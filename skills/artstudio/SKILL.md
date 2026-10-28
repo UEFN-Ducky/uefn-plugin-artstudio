@@ -7,6 +7,7 @@ keywords: draw, paint, art, brush, layer, retouch, icon, ui kit, sprite, nine sl
 # AI Art Studio
 
 Loop: plan → `artstudio_apply` batch → `artstudio_preview(region)` → fix.
+Look: `artstudio_preview(doc, output_dir=<your chat's attachments folder>)`, then `view_image(path)`; same `folder=` for `artstudio_export`.
 
 ## Doc
 `artstudio_doc(action)`: new|get|list|delete|ops_since|cost; versions: commit|versions|restore|branch|merge|compare. `artstudio_layer(action)`: add|set|remove|move|merge.

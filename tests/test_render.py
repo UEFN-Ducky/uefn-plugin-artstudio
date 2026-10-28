@@ -98,6 +98,18 @@ def test_preview_since_rev_crops_to_stroke_box():
     assert (small["w"], small["h"]) == (256, 180)
 
 
+def test_preview_writes_into_output_dir(tmp_path):
+    api, did = _preview_doc()
+    out = tmp_path / "attachments"
+    r = render.preview(api, did, output_dir=str(out))
+    assert r["ok"] and os.path.dirname(r["path"]) == str(out) and os.path.exists(r["path"])
+    # unusable output_dir falls back to local_dir
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    r = render.preview(api, did, output_dir=str(blocker / "sub"))
+    assert r["ok"] and os.path.exists(r["path"]) and "sub" not in r["path"]
+
+
 def test_preview_reply_is_small():
     api, did = _preview_doc()
     r = render.preview(api, did, region=[0, 0, 256, 180])

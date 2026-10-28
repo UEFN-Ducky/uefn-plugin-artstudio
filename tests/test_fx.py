@@ -41,6 +41,26 @@ def test_every_kind_appears_and_sizes():
     assert len(json.dumps(counts)) < 4096
 
 
+def test_live_registry_after_full_register():
+    import backend
+    from backend import contracts
+
+    class Api(_Api):
+        def tool(self, **kw):
+            return lambda fn: fn
+
+        def __getattr__(self, n):
+            return lambda *a, **k: (lambda fn: fn)
+
+    backend.register(Api())
+    counts = catalog._registry()
+    groups = catalog.build(counts)
+    assert contracts.OP_KINDS and sum(groups.values()) >= 30
+    for g in ("paint", "shape", "retouch", "layer", "fx", "transform", "mask"):
+        assert groups.get(g), g
+    assert groups["retouch"] >= 11 and groups.get("other", 0) == 0, groups
+
+
 def test_paint_has_nine_rows():
     assert len(catalog.build(_reg(), "paint")) == 9
 

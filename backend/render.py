@@ -156,7 +156,8 @@ def composite(doc: dict, canvas: Canvas) -> Image.Image:
 
 # ---- preview ---------------------------------------------------------------------------------------
 
-def preview(api, doc_id: str, region=None, max_px: int = 512, since_rev: int | None = None) -> dict:
+def preview(api, doc_id: str, region=None, max_px: int = 512, since_rev: int | None = None,
+            output_dir: str = "") -> dict:
     from . import ops  # lazy: ops imports this module
 
     doc = api.data.get(contracts.doc_key(doc_id))
@@ -181,8 +182,13 @@ def preview(api, doc_id: str, region=None, max_px: int = 512, since_rev: int | N
     if max(img.size) > cap:
         k = cap / max(img.size)
         img = img.resize((max(1, round(img.width * k)), max(1, round(img.height * k))), Image.LANCZOS)
-    folder = api.local_dir("previews")
-    os.makedirs(folder, exist_ok=True)
+    # output_dir (the chat's artifacts/attachments folder) is where view_image can open it; local_dir is the fallback
+    folder = output_dir or api.local_dir("previews")
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError:
+        folder = api.local_dir("previews")
+        os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{doc_id}_{doc['rev']}_{box[0]}-{box[1]}-{box[2]}-{box[3]}.png")
     img.save(path)
     return {"ok": True, "path": path, "w": img.width, "h": img.height, "rev": doc["rev"],
@@ -192,9 +198,12 @@ def preview(api, doc_id: str, region=None, max_px: int = 512, since_rev: int | N
 def register(api) -> None:
     @api.tool(intent=r"\bartstudio\b", listener=False)
     def artstudio_preview(doc: str, region: list | None = None, max_px: int = 512,
-                          since_rev: int | None = None) -> dict:
-        """Look at the artwork: a small PNG, optionally a [x,y,w,h] crop or only what changed since a rev."""
-        return preview(api, doc, region, max_px, since_rev)
+                          since_rev: int | None = None, output_dir: str = "") -> dict:
+        """Look at the artwork: a small PNG, optionally a [x,y,w,h] crop or only what changed since a rev.
 
-    api.register_panel_rpc("preview", lambda doc="", region=None, max_px=512, since_rev=None:
-                           preview(api, doc, region, max_px, since_rev))
+        Pass output_dir = the chat's attachments folder so view_image can open the returned path.
+        """
+        return preview(api, doc, region, max_px, since_rev, output_dir)
+
+    api.register_panel_rpc("preview", lambda doc="", region=None, max_px=512, since_rev=None, output_dir="":
+                           preview(api, doc, region, max_px, since_rev, output_dir))

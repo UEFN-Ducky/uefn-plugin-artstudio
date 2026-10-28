@@ -8,6 +8,8 @@ description: Plan, ink, preview and fix loop for hand-drawn art, with an ink-lin
 2. **Block in** with `fill` and `shape` ops (big shapes, flat color).
 3. **Ink** with sparse `pts`: 4–12 points per stroke; more points cost tokens, not quality.
 4. **Preview** only what changed: `artstudio_preview(doc, region=[x,y,w,h])` or `since_rev=<rev>`.
+   Look at your work with `artstudio_preview(doc, output_dir=<your chat's attachments folder>)`, then `view_image(path)`; same `folder=` for `artstudio_export`. AppData paths are refused by `view_image`.
+   Example: `artstudio_preview(doc="285139", output_dir="…/conversations/<chat>/attachments")` → a path `view_image` opens.
 5. **Fix** with a small new batch; `artstudio_undo(doc)` removes your last op.
 
 Look up an op's args with `artstudio_catalog(group=<kind>)`.

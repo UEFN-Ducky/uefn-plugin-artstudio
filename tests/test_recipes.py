@@ -32,6 +32,46 @@ def test_ui_kit_emits_to_engine():
     assert got and got[0][0] == "neon_panel" and r["slice"]["l"] == 24
 
 
+def _kit_canvas(style="fantasy_ink", prompt="fantasy wood and gold menu PLAY SETTINGS", w=1000, h=880):
+    api, docs, engine_ops = _rpc_api()
+    did = docs.new_doc(api, "Kit", w, h)["doc"]
+    r = api.rpcs["recipe"](action="ui_kit", doc=did, prompt=prompt, style=style)
+    assert r["ok"], r
+    cv = engine_ops.replay(api, did)
+    assert not cv.errors, cv.errors
+    from backend import styles_fx
+    return {l: styles_fx.styled(cv, l) for l in r["layers"]}, r["layers"]
+
+
+def _lum(img):
+    px = [p for p in img.getdata() if p[3] > 200]
+    return sum(0.3 * p[0] + 0.59 * p[1] + 0.11 * p[2] for p in px) / len(px)
+
+
+def test_ui_kit_real_sizes():
+    r = artstudio_ui_kit("fantasy_ink", None, 640, labels=["PLAY"])
+    sz = {d["name"]: (d["w"], d["h"]) for d in r["docs"]}
+    assert sz["panel"] == (640, 420) and sz["button_normal"] == (320, 96) and sz["close"] == (96, 96)
+    assert len(set(sz.values())) >= 3
+    assert any(o["kind"] == "text" and o["args"]["font"] == "title" and o["args"]["text"] == "PLAY"
+               for d in r["docs"] for o in d["ops"])
+    assert any(o["kind"] == "style" and o["args"]["name"] == "bevel" for o in r["docs"][0]["ops"])
+
+
+def test_ui_kit_button_states_ordered_and_wood_textured():
+    layers, ids = _kit_canvas()
+    lum = {k: _lum(layers["ui_kit_button_" + k]) for k in ("normal", "hover", "pressed")}
+    assert lum["hover"] > lum["normal"] > lum["pressed"], lum
+    panel = layers["ui_kit_panel"]
+    cx, cy = panel.width // 2, panel.height // 2
+    inner = [panel.getpixel((x, y)) for x in range(cx - 80, cx + 80, 2) for y in range(cy - 60, cy + 60, 2)]
+    g = [0.3 * p[0] + 0.59 * p[1] + 0.11 * p[2] for p in inner if p[3] > 200]
+    mean = sum(g) / len(g)
+    assert (sum((v - mean) ** 2 for v in g) / len(g)) ** 0.5 > 8  # grain, not a flat fill
+    fr = layers["ui_kit_frame"]
+    assert fr.getpixel((fr.width // 2, fr.height // 2))[3] == 0  # frame center is empty
+
+
 def test_icons_stay_in_palette():
     r = artstudio_icon_set("paper", ["coin", "gem", "heart", "sword"], 256)
     assert r["ok"] and len(r["manifest"]) == 4
@@ -93,9 +133,9 @@ def test_ai_menu_rpcs_add_layers():
     assert api.rpcs["style"](action="list")["n"] == 4
     assert "ai_ui_kit" not in api.rpcs and "style_list" not in api.rpcs
     r = api.rpcs["recipe"](action="ui_kit", doc=did, prompt="fantasy wood")
-    assert r["ok"] and len(r["layers"]) == 5 and r["rev"] > 2
+    assert r["ok"] and len(r["layers"]) == 6 and r["rev"] > 2
     d = docs.get_doc(api, did)
-    assert [x["id"] for x in d["layers"]][-5:] == r["layers"]
+    assert [x["id"] for x in d["layers"]][-6:] == r["layers"]
     cv = engine_ops.replay(api, did)
     assert not cv.errors, cv.errors
     assert cv.get(r["layers"][0]).getbbox() is not None  # panel drew pixels

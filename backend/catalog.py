@@ -10,19 +10,26 @@ MAX_BYTES = 4000
 GROUPS = {
     "paint": ("stroke", "fill", "gradient", "clone", "heal", "dodge", "burn", "sponge", "smudge"),
     "shape": ("shape", "text", "image.place"),
-    "retouch": ("retouch", "blur_brush", "sharpen_brush"),
+    "retouch": ("retouch", "blur_brush", "sharpen_brush", "levels", "curves", "hue_sat", "brightness_contrast",
+                "crop", "resize", "rotate", "flip", "sharpen", "blur", "denoise"),
     "fx": ("filter", "style"),
     "transform": ("transform",),
     "mask": ("mask", "clip"),
-    "meta": ("undo", "note"),
+    "meta": ("undo", "restore", "note"),
 }
 _KIND_GROUP = {k: g for g, ks in GROUPS.items() for k in ks}
+# Handler module name fragment -> group, for kinds registered later and not listed above.
+_MODULE_GROUP = {"retouch": "retouch", "filters": "fx", "styles": "fx", "transform": "transform",
+                 "masks": "mask", "vector": "shape", "text": "shape", "tools_paint": "paint", "brush": "paint"}
 
 
-def group_of(kind: str) -> str:
+def group_of(kind: str, rec=None) -> str:
     if kind in _KIND_GROUP:
         return _KIND_GROUP[kind]
-    return "layer" if kind.startswith("layer.") else "other"
+    if kind.startswith("layer."):
+        return "layer"
+    mod = getattr(rec.get("fn") if isinstance(rec, dict) else rec, "__module__", "") or ""
+    return next((g for frag, g in _MODULE_GROUP.items() if frag in mod), "other")
 
 
 def _registry() -> dict:
@@ -31,7 +38,7 @@ def _registry() -> dict:
         from . import contracts
     except Exception:  # noqa: BLE001
         return {}
-    for name in ("OP_HANDLERS", "HANDLERS", "op_handlers", "list_op_handlers"):
+    for name in ("OP_KINDS", "OP_HANDLERS", "HANDLERS", "op_handlers", "list_op_handlers"):
         reg = getattr(contracts, name, None)
         if callable(reg):
             reg = reg()
@@ -57,7 +64,7 @@ def build(registry: dict, group: str = "") -> object:
     """No group: {group: count}. With group: rows, examples dropped when over MAX_BYTES."""
     by_group: dict[str, list[str]] = {}
     for kind in sorted(registry):
-        by_group.setdefault(group_of(kind), []).append(kind)
+        by_group.setdefault(group_of(kind, registry[kind]), []).append(kind)
     if not group:
         return {g: len(ks) for g, ks in sorted(by_group.items())}
     rows = [_row(k, registry[k]) for k in by_group.get(group, [])]
