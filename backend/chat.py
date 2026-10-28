@@ -108,27 +108,41 @@ def chat_send(api, doc, text, model="", attach=None, conv_id="", new_agent=False
     first = False
     if api.data.get(f"live.stop.{doc}"):
         _ai_stop(api, doc, True)  # a new prompt lifts an earlier Stop
+    def standalone():
+        # A plain sidebar chat (ducky_create_chat), never a team seat: the host's team rules
+        # (a lead may not message its own members) can't block it.
+        made = api.call_tool("ducky_create_chat", {"title": name}) or {}
+        return {"name": name, "conv_id": made.get("conv_id") or made.get("chat_id") or made.get("id"),
+                "model": model, "doc": doc}
+
+    def deliver(cid):
+        sent = api.call_tool("ducky_send_chat_message", {"conv_id": cid, "message": msg, "wait_for_reply": False})
+        refused = isinstance(sent, dict) and (sent.get("ok") is False or sent.get("status") in ("not_sent", "error", "refused"))
+        return (not refused), (str(sent.get("reason") or sent.get("error") or "message not sent")[:200] if refused else "")
+
     if new_agent:
-        made = api.call_tool("ducky_spawn_chat", {"ducky": "Developer", "title": name, "message": msg})
-        rec = {"name": name, "conv_id": made.get("conv_id") or made.get("chat_id") or made.get("id"),
-               "model": model, "doc": doc}
-        api.data.put(key, rec)
-        return {"ok": True, "conv_id": rec["conv_id"], "name": name, "model": model, "created": True}
-    if conv_id:
+        rec, first = standalone(), True
+    elif conv_id:
         rec = {**(rec or {"name": name, "doc": doc}), "conv_id": conv_id}
     elif not rec:
-        first = True
-        made = api.call_tool("ducky_create_chat", {"title": name})
-        rec = {"name": name, "conv_id": made.get("conv_id") or made.get("id"), "model": model, "doc": doc}
+        rec, first = standalone(), True
     elif model and model != rec.get("model"):
         rec = {**rec, "model": model}
+    ok, why = deliver(rec["conv_id"])
+    note = ""
+    if not ok and not first:
+        # The chosen chat refused the message: hand it to this artwork's own standalone agent instead.
+        rec, first = standalone(), True
+        ok, why2 = deliver(rec["conv_id"])
+        note = f"Sent to a new artwork agent; the chosen chat refused it ({why[:80]})."
+        why = why2
+    if not ok:
+        return {"ok": False, "conv_id": rec["conv_id"], "error": why}
     api.data.put(key, rec)
-    sent = api.call_tool("ducky_send_chat_message", {"conv_id": rec["conv_id"], "message": msg, "wait_for_reply": False})
-    if isinstance(sent, dict) and (sent.get("ok") is False or sent.get("status") in ("not_sent", "error", "refused")):
-        # The host can refuse (e.g. a team lead messaging its own members): say so instead of a silent "ok".
-        return {"ok": False, "conv_id": rec["conv_id"],
-                "error": str(sent.get("reason") or sent.get("error") or "message not sent")[:200]}
-    return {"ok": True, "conv_id": rec["conv_id"], "name": rec["name"], "model": rec.get("model", ""), "created": first}
+    out = {"ok": True, "conv_id": rec["conv_id"], "name": rec["name"], "model": rec.get("model", ""), "created": first}
+    if note:
+        out["note"] = note
+    return out
 
 
 def chat_stop(api, doc, conv_id=""):

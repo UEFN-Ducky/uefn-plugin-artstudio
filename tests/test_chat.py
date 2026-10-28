@@ -71,7 +71,7 @@ def test_agents_merges_doc_chat_and_list():
 def test_send_conv_id_new_agent_and_stop():
     api = FakeApi()
     seen = []
-    api.call_tool = lambda n, a=None: seen.append((n, a)) or ({"conv_id": "n1"} if n == "ducky_spawn_chat" else {})
+    api.call_tool = lambda n, a=None: seen.append((n, a)) or ({"conv_id": "n1"} if n == "ducky_create_chat" else {})
     ctx = {"layer": "L1", "tool": "brush", "selection": [0, 0, 9, 9], "hint": "x" * 900}
     r = chat.chat_send(api, "d1", "add lashes", conv_id="c7", context=ctx)
     n, a = seen[0]
@@ -79,8 +79,10 @@ def test_send_conv_id_new_agent_and_stop():
     assert len(a["message"]) <= 600 and r["conv_id"] == "c7" and api.store["chat.d1"]["conv_id"] == "c7"
     seen.clear()
     r = chat.chat_send(api, "d1", "hi", new_agent=True)
-    assert seen[0][0] == "ducky_spawn_chat" and seen[0][1]["ducky"] == "Developer"
-    assert r["conv_id"] == "n1" and api.store["chat.d1"]["conv_id"] == "n1" and len(seen[0][1]["message"]) <= 600
+    # New agent = a standalone sidebar chat (never a team seat), then the message is delivered to it.
+    assert seen[0][0] == "ducky_create_chat" and seen[1][0] == "ducky_send_chat_message"
+    assert seen[1][1]["conv_id"] == "n1" and len(seen[1][1]["message"]) <= 600
+    assert r["conv_id"] == "n1" and api.store["chat.d1"]["conv_id"] == "n1"
     stops = []
     chat._ai_stop = lambda api_, doc, resume=False: stops.append((doc, resume)) or {"ok": True}
     seen.clear()
@@ -88,7 +90,28 @@ def test_send_conv_id_new_agent_and_stop():
     assert seen == [("ducky_agent_stop", {"conv_id": "n1"})]
 
 
+def test_refused_send_falls_back_to_own_agent():
+    api = FakeApi()
+    seen = []
+
+    def tool(n, a=None):
+        seen.append((n, a))
+        if n == "ducky_create_chat":
+            return {"conv_id": "own1"}
+        if n == "ducky_send_chat_message" and a["conv_id"] == "team7":
+            return {"status": "not_sent", "reason": "Not sent: your members get their work from the plan"}
+        return {}
+
+    api.call_tool = tool
+    r = chat.chat_send(api, "d1", "add blush", conv_id="team7")
+    sends = [a["conv_id"] for n, a in seen if n == "ducky_send_chat_message"]
+    assert sends == ["team7", "own1"]  # refused, then delivered to the artwork's own agent
+    assert r["ok"] and r["conv_id"] == "own1" and "refused" in r["note"]
+    assert api.store["chat.d1"]["conv_id"] == "own1"
+
+
 if __name__ == "__main__":
+    test_refused_send_falls_back_to_own_agent()
     test_agents_merges_doc_chat_and_list()
     test_send_conv_id_new_agent_and_stop()
     test_open_chat_passes_conv_id()
