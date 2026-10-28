@@ -193,6 +193,10 @@ export function createEngine({ rpc, call, by }) {
     const gone = undoneSet();
     for (const o of ops) {
       if (gone.has(o.rev) || o.kind === 'undo') continue;
+      if (rasterMode && o.rev) { // the backend raster already has these; ops it renders itself wait for the next raster
+        if (o.rev <= (o.kind === 'canvas' ? rasterRev : baseRev.get(o.layer) ?? 0)) continue;
+        if (o.kind !== 'canvas' && !o.kind.startsWith('layer.') && (o.by?.kind === 'ai' || !handlers.has(o.kind))) continue;
+      }
       if (o.kind === 'canvas') applyCanvas(normalizeOp(o).args); else drawOp(o);
     }
     if (doc.w !== was.w || doc.h !== was.h) announce();
@@ -233,14 +237,43 @@ export function createEngine({ rpc, call, by }) {
     }
   }
 
-  async function fetchBitmap(path) {
+  async function bitmapOf(b64) {
     try {
-      const r = await call('files.get', { path });
-      const b64 = typeof r === 'string' ? r : r?.data || r?.b64;
       if (!b64) return null;
       const bin = Uint8Array.from(atob(b64.replace(/^data:[^,]*,/, '')), (c) => c.charCodeAt(0));
       return await createImageBitmap(new Blob([bin], { type: 'image/png' }));
     } catch { return null; }
+  }
+  async function fetchBitmap(path) {
+    try {
+      const r = await call('files.get', { path });
+      return await bitmapOf(typeof r === 'string' ? r : r?.data || r?.b64);
+    } catch { return null; }
+  }
+
+  // Backend pixels are the truth: `doc raster` PNGs per layer. JS renderers only show the user's own strokes at once.
+  let rasterMode = false, rasterRev = 0, baseRev = new Map(), rfTimer = null, rfLast = 0, rfFull = false;
+  const REFRESH_MS = 250; // at most one raster refresh per 250 ms while the AI streams ops
+  function scheduleRefresh(full = false) {
+    rfFull ||= full;
+    if (rfTimer) return;
+    rfTimer = setTimeout(refreshRaster, Math.max(0, REFRESH_MS - (Date.now() - rfLast)));
+  }
+  async function refreshRaster() {
+    rfTimer = null; rfLast = Date.now();
+    const full = rfFull; rfFull = false;
+    const token = loading, id = doc?.id;
+    if (!id) return;
+    const r = await rpc('doc', { action: 'raster', doc: id, args: full ? {} : { since_rev: rasterRev } });
+    if (token !== loading || !r?.ok || !Array.isArray(r.layers)) return;
+    await Promise.all(r.layers.map(async (l) => {
+      const bmp = await bitmapOf(l.png);
+      if (bmp && layerOf(l.id)) { base.set(l.id, bmp); baseRev.set(l.id, r.rev); }
+    }));
+    if (token !== loading) return;
+    rasterRev = Math.max(rasterRev, r.rev);
+    if (r.w && r.h) size0 = { w: r.w, h: r.h };
+    rebuild();
   }
 
   const engine = {
@@ -346,19 +379,30 @@ export function createEngine({ rpc, call, by }) {
     /** Load a doc: its record, newest checkpoint bitmaps, then ops since the checkpoint. */
     async load(docId) {
       const token = ++loading;
-      const rec = await call('data.get', { key: `doc.${docId}` });
+      clearTimeout(rfTimer); rfTimer = null; rfFull = false;
+      let rec = await rpc('doc', { action: 'get', doc: docId });
+      if (!rec?.ok || !rec.layers) rec = await call('data.get', { key: `doc.${docId}` }); // no doc action (older host / tests)
       const d = rec?.value ?? rec;
-      if (!d || token !== loading) return false;
+      if (!d?.layers || token !== loading) return false;
+      const ras = await rpc('doc', { action: 'raster', doc: docId, args: {} });
+      if (token !== loading) return false;
+      rasterMode = !!(ras?.ok && Array.isArray(ras.layers));
       doc = { ...d, layers: d.layers.map((l) => ({ ...l })) };
+      if (rasterMode) { doc.w = ras.w || doc.w; doc.h = ras.h || doc.h; }
       comp = createCompositor(doc.w, doc.h);
       selection = new Selection(doc.w, doc.h, emit);
       tf.cancel();
       size0 = { w: d.w0 ?? doc.w, h: d.h0 ?? doc.h }; // size before the doc's first canvas op (the replay start)
       view.setDoc(doc.w, doc.h);
-      base = new Map(); ops = []; rev = doc.checkpoint_rev || 0;
-      // Layers present at the checkpoint have bitmaps; the layer.* ops after it rebuild the structure,
-      // so start from the doc's final layer list and let applyOp skip duplicates.
-      if (rev) {
+      base = new Map(); ops = []; rev = doc.checkpoint_rev || 0; baseRev = new Map(); rasterRev = 0;
+      if (rasterMode) {
+        rev = rasterRev = ras.rev || 0;
+        await Promise.all(ras.layers.map(async (l) => {
+          const bmp = await bitmapOf(l.png);
+          if (bmp) { base.set(l.id, bmp); baseRev.set(l.id, rev); }
+        }));
+        if (token !== loading) return false;
+      } else if (rev) { // layers present at the checkpoint have bitmaps; layer.* ops after it rebuild the structure (applyOp skips duplicates)
         await Promise.all(doc.layers.map(async (l) => {
           const bmp = await fetchBitmap(`px/${docId}/${l.id}@${rev}.png`);
           if (bmp) base.set(l.id, bmp);
@@ -395,11 +439,18 @@ export function createEngine({ rpc, call, by }) {
       if (op.by?.id === self.id && pending > 0 && op.kind !== 'undo' && op.kind !== 'canvas' && !op.kind.startsWith('layer.')) {
         pending--; // our own optimistic draw already shows it
         ops.push(raw);
-      } else if (op.kind.startsWith('layer.')) { layerStructure(op); ops.push(raw); }
-      else if (op.kind === 'canvas') { ops.push(raw); applyCanvas(op.args); announce(); } // canvas_size / image_size / crop / rotate
-      else if (op.kind === 'undo') { ops.push(raw); rebuild(); }
+        if (rasterMode && !handlers.has(op.kind)) scheduleRefresh(); // no JS renderer: the backend pixels are the picture
+      } else if (op.kind.startsWith('layer.')) {
+        layerStructure(op); ops.push(raw);
+        if (rasterMode && op.kind !== 'layer.add' && op.kind !== 'layer.set') scheduleRefresh();
+      }
+      else if (op.kind === 'canvas') { ops.push(raw); applyCanvas(op.args); announce(); if (rasterMode) scheduleRefresh(true); } // canvas_size / image_size / crop / rotate
+      else if (op.kind === 'undo') { ops.push(raw); if (rasterMode) scheduleRefresh(true); else rebuild(); }
       else if (op.kind === 'note') ops.push(raw);
-      else { ops.push(raw); drawOp(op); }
+      else {
+        ops.push(raw);
+        if (rasterMode && (op.by?.kind === 'ai' || !handlers.has(op.kind))) scheduleRefresh(); else drawOp(op);
+      }
       if (op.rev) rev = op.rev;
       if (doc) doc.rev = rev;
       if (op.rev && op.rev % CHECKPOINT_INTERVAL === 0) doc.checkpoint_rev = op.rev;

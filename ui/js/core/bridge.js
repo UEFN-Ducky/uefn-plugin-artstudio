@@ -62,7 +62,7 @@ export const data = {
   delete: (key) => call('data.delete', { key }),
 };
 export const files = {
-  put: (path, b64) => call('files.put', { path, data: b64 }),
+  put: (path, b64) => call('files.put', { path, b64 }),
   get: (path) => call('files.get', { path }),
   list: (prefix = '') => call('files.list', { prefix }),
   delete: (path) => call('files.delete', { path }),

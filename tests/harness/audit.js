@@ -35,6 +35,8 @@ export const STEPS = {
   'brush-pixels': [['key', 'b'], ['pix', 'before'], ['drag'], ['pix', 'after']],
   'ctx-canvas-select2': [['cmd', 'select.all'], ['ctx', '[data-panel="canvas"] canvas'], ['menuitems']],
   'layout': [['layout']],
+  // real-host audit: doc tabs, top bar background, dock tab rows, console errors, composite pixels at ?pts=x,y;x,y (doc space)
+  real: [['real'], ['layout']],
   'freetransform': [['cmd', 'select.all'], ['key', 't', { ctrlKey: true }]],
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -59,6 +61,26 @@ export async function run(name, win) {
         const el = q(a) || (() => { throw new Error('no element ' + a); })();
         const r = el.getBoundingClientRect();
         el.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, button: 2 }));
+      } else if (verb === 'real') {
+        const css = (el) => (el ? win.getComputedStyle(el) : null);
+        const bar = css(q('.studio__bar'));
+        log.push('doctabs: ' + [...doc.querySelectorAll('[data-doc-tabs] > *')].map((t) => (t.textContent || '').trim().slice(0, 24)).join('|'));
+        log.push('topbar bg: ' + (bar && bar.backgroundColor) + ' ; body bg: ' + css(doc.body).backgroundColor + ' ; --bg=' + win.getComputedStyle(doc.documentElement).getPropertyValue('--bg'));
+        log.push('dock rows: ' + [...doc.querySelectorAll('[data-dock-group]')].map((g) => { const n = g.querySelector('nav'); const ys = new Set([...n.children].filter((c) => c.offsetParent).map((c) => Math.round(c.getBoundingClientRect().top))); return `${g.dataset.dockGroup}:${ys.size}row`; }).join(' '));
+        const eng = win.artstudio && win.artstudio.engine;
+        if (new URLSearchParams(location.search).has('live')) { // an AI-authored op while the doc is open: must reach the canvas within 1 s
+          const lid = eng.layers.at(-1).id, did = win.artstudio.store.get().doc;
+          const r = await (await fetch('/rpc', { method: 'POST', body: JSON.stringify({ method: 'apply', params: { doc: did, ops: [{ kind: 'shape', layer: lid, by: { kind: 'ai', id: 'agent', label: 'AI' }, args: { type: 'rect', box: [0, 0, 40, 40], fill: ['#', 'ff', '00', '00'].join('') } }] } }) })).json();
+          const t0 = Date.now(); let p = eng.getPixels(null, { x: 10, y: 10, w: 1, h: 1 });
+          while (p.data[0] < 200 && Date.now() - t0 < 3000) { await sleep(100); p = eng.getPixels(null, { x: 10, y: 10, w: 1, h: 1 }); }
+          log.push(`live apply ok=${r.ok} rev=${r.rev}; (10,10) red after ${Date.now() - t0}ms = rgba(${[0, 1, 2, 3].map((k) => p.data[k]).join(',')})`);
+        }
+        for (const pt of (new URLSearchParams(location.search).get('pts') || '').split(';').filter(Boolean)) {
+          const [x, y] = pt.split(',').map(Number), p = eng.getPixels(null, { x, y, w: 1, h: 1 });
+          log.push(`probe (${x},${y}) = rgba(${[0, 1, 2, 3].map((k) => p.data[k]).join(',')})`);
+        }
+        log.push('layers: ' + (eng ? eng.layers.length : 'no engine'));
+        log.push('panelErrors: ' + (parent.panelErrors.join(' // ') || 'none'));
       } else if (verb === 'cmd') win.artstudio.dispatch(a, { doc: win.artstudio.store.get().doc });
       else if (verb === 'key') doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: a, bubbles: true, ...(b || {}) }));
       else if (verb === 'probe') {

@@ -135,9 +135,10 @@ function renderState() {
 // ---- docs ---------------------------------------------------------------
 async function loadDocs() {
   try {
-    const out = await call("data.list", { prefix: "doc." });
-    const docs = (out?.items || out?.docs || (Array.isArray(out) ? out : []))
-      .map((d) => d.value || d).filter((d) => d && d.id);
+    // The backend owns the doc list (same function as artstudio_doc list); raw data.list keys don't carry it.
+    const out = await rpc("doc", { action: "list", limit: 200 });
+    if (out?.ok === false) throw new Error(out.error || out.err || "doc list failed");
+    const docs = (out?.docs || out?.items || []).filter((d) => d && d.id);
     const cur = store.get().doc;
     store.set({ docs, status: "ready", error: "", doc: docs.some((d) => d.id === cur) ? cur : docs[0]?.id || null });
   } catch (err) {
@@ -169,7 +170,8 @@ async function newDoc() {
   const out = await rpc("doc_new", { name: "Untitled", w: 1024, h: 1024, ...spec }).catch((e) => ({ ok: false, error: e.message }));
   if (out?.ok === false) return store.set({ status: "error", error: out.error });
   await loadDocs();
-  if (out?.id) store.set({ doc: out.id, closed: store.get().closed.filter((c) => c !== out.id) });
+  const id = out?.id || out?.doc;
+  if (id) store.set({ doc: id, closed: store.get().closed.filter((c) => c !== id) });
 }
 
 async function openImage() {

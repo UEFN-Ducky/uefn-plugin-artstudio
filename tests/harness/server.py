@@ -10,17 +10,27 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, ROOT)
 
-KIT_JS = "(function(){var v=%s;var s=document.createElement('style');s.textContent=':root{'+Object.keys(v).map(function(k){return k+':'+v[k]}).join(';')+'}'+%s;document.head.appendChild(s);})();"
+import base64
+import re
+import urllib.request
+
+# The REAL kit (ducky.js + ducky.css) is proxied from the running Ducky; no stand-in.
+KIT_ORIGIN = os.environ.get("DUCKY_KIT_ORIGIN", "http://127.0.0.1:4199/plugin-ui/_kit/")
+# Appearance variables as theme.get returns them (keys without "--"): every var ducky.css reads.
 THEME = {
-    "--bg": "#14161a", "--panel": "#1c1f25", "--fg": "#e6e8ec", "--muted": "#8b909a", "--border": "#2c3038",
-    "--accent": "#4aa3ff", "--blue": "#4aa3ff", "--green": "#4cc38a", "--red": "#e5534b", "--amber": "#e0a030",
-    "--purple": "#a78bfa", "--yellow": "#e8c547",
+    "bg": "#0f1115", "bg-elevated": "#161a20", "bg-hover": "#1d222a", "card": "#171b21", "card-hover": "#1e232b",
+    "panel-header": "#13161b", "dropdown-bg": "#1a1e25", "input-bg": "#12151a", "btn-bg": "#1f242c",
+    "btn-hover": "#2a313b", "btn-pressed": "#171b21", "tab-active": "#252b35", "tab-hover": "#1d222a",
+    "fg": "#e6e8ec", "fg-dim": "#b3b8c2", "fg-inverse": "#0f1115", "muted": "#8b909a",
+    "border": "#2a2f38", "border-light": "#363c47", "border-focus": "#4aa3ff",
+    "accent": "#4aa3ff", "accent-hover": "#6bb5ff",
+    "blue": "#4aa3ff", "blue-dim": "#1d3550", "green": "#4cc38a", "green-dim": "#1b3a2d",
+    "red": "#e5534b", "red-dim": "#43211f", "amber": "#e0a030", "amber-dim": "#40301a",
+    "purple": "#a78bfa", "yellow": "#e8c547",
+    "radius": "8px", "radius-sm": "5px", "shadow-sm": "0 1px 3px rgba(0,0,0,.4)",
+    "font-ui": "system-ui, sans-serif", "font-ui-size": "12px", "font-mono": "Consolas, monospace", "font-mono-size": "12px",
 }
-# ponytail: stand-in kit (the host's real _kit is not in the repo); swap for the real files when available.
-KIT_CSS = """body.dk-page{background:var(--bg);color:var(--fg);font:12px system-ui,sans-serif;margin:0}
-.dk-card{background:var(--panel);border:1px solid var(--border);border-radius:10px}
-.dk-btn,.dk-pill,.dk-input{background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:3px 8px}
-.dk-pill{border-radius:999px}.dk-row{display:flex;gap:6px;align-items:center}"""
+KEY_RE, PATH_RE = re.compile(r"^[a-z0-9._-]{1,128}$"), re.compile(r"^(?!\.)(?!.*\.\.)[a-z0-9._/-]{1,256}$")
 
 
 class FakeData:
@@ -116,8 +126,12 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        if path == "/_kit/ducky.js":
-            return self._send(200, KIT_JS % (json.dumps(THEME), json.dumps(KIT_CSS)), "text/javascript")
+        if path.startswith("/_kit/"):
+            try:
+                with urllib.request.urlopen(KIT_ORIGIN + path[len("/_kit/"):], timeout=5) as r:
+                    return self._send(200, r.read(), r.headers.get("Content-Type", "application/octet-stream"))
+            except Exception as exc:  # noqa: BLE001 - no fallback stub on purpose: a missing real kit must fail loudly
+                return self._send(502, f"real kit unavailable: {exc}", "text/plain")
         if path == "/theme":
             return self._send(200, json.dumps(THEME), "application/json")
         if path == "/" or path.startswith("/harness/"):
@@ -126,22 +140,59 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send(200, f.read(), "text/html" if name.endswith(".html") else "text/javascript")
         return super().do_GET()
 
+    @staticmethod
+    def host_data(d, req):
+        """README 'Methods' table: exact params and replies of scope/data/files.*; errors as {ok:false,error}."""
+        op, key, path = req.get("op"), req.get("key"), req.get("path")
+        fail = lambda m: {"ok": False, "error": m}  # noqa: E731
+        if op == "scope":
+            return {"scope": {"kind": "sandbox", "label": "Harness", "spaceId": None, "readOnly": False}}
+        if op in ("get", "put", "delete") and not (isinstance(key, str) and KEY_RE.match(key)):
+            return fail(f"bad doc key: {key!r}")
+        if op in ("fput", "fget", "fdelete") and not (isinstance(path, str) and PATH_RE.match(path)):
+            return fail(f"bad file path: {path!r}")
+        if op == "get":
+            return {"key": key, "value": d.get(key)}
+        if op == "put":
+            changed = d.get(key) != req.get("value")
+            d.put(key, req.get("value"))
+            return {"ok": True, "changed": changed}
+        if op == "delete":
+            existed = key in d.d
+            d.delete(key)
+            return {"ok": True, "deleted": existed}
+        if op == "list":
+            items = d.items(req.get("prefix") or "")
+            return {"items": items} if req.get("values") is True else {"keys": sorted(items)}
+        if op == "fput":
+            if not isinstance(req.get("b64"), str):
+                return fail("files.put needs b64")
+            raw = base64.b64decode(req["b64"])
+            changed = d.get_file(path) != raw
+            d.put_file(path, raw)
+            return {"ok": True, "changed": changed, "size": len(raw)}
+        if op == "fget":
+            raw = d.get_file(path)
+            if raw is None:
+                return fail("no such file")
+            raw = raw.encode() if isinstance(raw, str) else bytes(raw)
+            return {"ok": True, "b64": base64.b64encode(raw).decode()}
+        if op == "flist":
+            pre = req.get("prefix") or ""
+            return {"files": [{"path": k, "size": len(v), "sha256": ""} for k, v in sorted(d.files.items()) if k.startswith(pre)]}
+        if op == "fdelete":
+            existed = path in d.files
+            d.files.pop(path, None)
+            return {"ok": True, "deleted": existed}
+        return fail(f"unknown data op {op}")
+
     def do_POST(self):
         if self.path not in ("/rpc", "/data"):
             return self._send(404, "{}", "application/json")
         try:
             req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
             if self.path == "/data":  # the host's data.* bridge, backed by the same store the backend writes
-                d, op = API.data, req.get("op")
-                if op == "list":
-                    out = {"items": [{"key": k, "value": v} for k, v in d.items(req.get("prefix") or "").items()]}
-                elif op == "put":
-                    d.put(req["key"], req.get("value")); out = {"ok": True}
-                elif op == "delete":
-                    d.delete(req["key"]); out = {"ok": True}
-                else:
-                    out = {"value": d.get(req["key"])}
-                return self._send(200, json.dumps(out, default=str), "application/json")
+                return self._send(200, json.dumps(self.host_data(API.data, req), default=str), "application/json")
             fn = API.rpcs.get(req.get("method"))
             out = {"ok": False, "err": f"no rpc {req.get('method')}"} if not fn else fn(**(req.get("params") or {}))
         except Exception as exc:  # noqa: BLE001

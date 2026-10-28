@@ -14,14 +14,18 @@
 <body class="dk-page studio">
   <header class="studio__bar">
     <nav data-panel="menu" class="studio__menu" aria-label="Menu"></nav>
-    <section data-panel="options" class="studio__options" aria-label="Tool options"></section>
+    <div class="studio__spacer"></div>
+    <div class="studio__actions">
+      <button class="dk-btn" data-act="new" title="New artwork (Ctrl+N)">+ New</button>
+      <button class="dk-btn" data-act="open" title="Open image (Ctrl+O)">Open</button>
+      <button class="dk-btn" data-act="watch" aria-pressed="true" title="Watch the AI work">Watch AI</button>
+    </div>
   </header>
+
+  <section data-panel="options" class="studio__options" aria-label="Tool options"></section>
 
   <div class="studio__docbar">
     <div class="studio__doctabs" data-doc-tabs role="tablist" aria-label="Open artwork"></div>
-    <button class="dk-btn" data-act="new" title="New artwork (Ctrl+N)">+ New</button>
-    <button class="dk-btn" data-act="open" title="Open image (Ctrl+O)">Open</button>
-    <button class="dk-btn" data-act="watch" aria-pressed="true" title="Watch the AI work">Watch AI</button>
   </div>
 
   <main class="studio__body">

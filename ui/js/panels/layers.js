@@ -45,6 +45,8 @@ const CSS = `
 .as-layer__label{width:8px;height:8px;border-radius:999px;background:var(--accent);flex:none}
 .as-layer__fx{font-size:10px;border:1px solid var(--border);border-radius:999px;padding:0 4px}
 .as-lock-badge{font-size:11px;color:var(--accent)}
+.as-layer [data-a="lock"][aria-pressed="false"]{opacity:0}
+.as-layer:hover [data-a="lock"][aria-pressed="false"],.as-layer [data-a="lock"]:focus-visible{opacity:.5}
 `;
 
 const LOCKS = [["pixels", "▨", "Lock pixels"], ["position", "✥", "Lock position"], ["all", "🔒", "Lock all"]];

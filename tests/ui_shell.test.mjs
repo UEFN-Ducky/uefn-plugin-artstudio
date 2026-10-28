@@ -209,6 +209,17 @@ for (const t of ['color', 'swatches', 'properties', 'adjustments', 'layers', 'hi
   assert.ok(html.includes(`data-tab="${t}"`) && html.includes(`data-tab-body="${t}"`), `tab ${t}`);
 }
 assert.equal([...html.matchAll(/data-dock-group="/g)].length, 5);
+// each group header is ONE row container holding its tabs and its menu + collapse buttons
+const css = readFileSync(new URL('../ui/css/studio.css', import.meta.url), 'utf8');
+const navs = [...html.matchAll(/<nav class="studio__tabs"[\s\S]*?<\/nav>/g)].map((m) => m[0]);
+assert.equal(navs.length, 5);
+for (const n of navs) assert.ok(n.includes('data-tab=') && n.includes('data-group-menu') && n.includes('data-group-toggle'), 'header row');
+assert.match(css, /\.studio__tabs \{[^}]*flex-wrap: nowrap/);
+// top bar is one card strip with New / Open / Watch AI inside it
+assert.match(css, /\.studio__bar \{[^}]*background: var\(--card\)/);
+assert.match(css, /\.studio__bar \{[^}]*border-bottom: 1px solid var\(--border\)/);
+const topBar = html.match(/<header class="studio__bar">[\s\S]*?<\/header>/)[0];
+for (const a of ['new', 'open', 'watch']) assert.ok(topBar.includes(`data-act="${a}"`), `${a} in top bar`);
 // ---- askPrompt: genfill with no prompt asks through the dialog, then posts inpaint ----
 const rp = []; const titles = []; let formVal;
 const pctx = {

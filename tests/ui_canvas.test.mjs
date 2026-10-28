@@ -12,7 +12,7 @@ class FakeCanvas {
     const self = this;
     return new Proxy({ canvas: this }, {
       get: (t, k) => (k in t ? t[k] : k === 'getImageData' ? (x, y, w, h) => ({ width: w, height: h, data: self.px || new Uint8ClampedArray(w * h * 4) })
-        : k === 'drawImage' ? (src) => { self.calls.push('drawImage'); (self.draws ||= []).push({ src, alpha: t.globalAlpha, op: t.globalCompositeOperation }); }
+        : k === 'drawImage' ? (src) => { self.calls.push('drawImage'); if (src?.px && !self.px) self.px = src.px; (self.draws ||= []).push({ src, alpha: t.globalAlpha, op: t.globalCompositeOperation }); }
         : k === 'createLinearGradient' || k === 'createRadialGradient' || k === 'createConicGradient' ? () => ({ addColorStop(o, c) { (self.stops ||= []).push(c); } })
         : k === 'createImageData' ? (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) })
         : (...a) => { self.calls.push(k); }),
@@ -493,6 +493,42 @@ assert.equal(eng.layers.find((l) => l.id === 'L1').text, undefined);
   const probe = be.getPixels('L1', { x: 30, y: 25, w: 1, h: 1 });
   assert.ok(probe && probe.w === 1 && probe.data.length === 4, 'getPixels(layer, rect) returns the rect');
   assert.ok(be.getPixels(null, { x: 0, y: 0, w: 2, h: 2 }), 'getPixels(null) reads the composite');
+}
+
+// ---- backend pixels are the truth: load draws `doc raster` PNGs; an op the JS cannot render triggers one since_rev raster ----
+{
+  const png = (txt) => 'data:image/png;base64,' + btoa(txt); // the stub decoder turns the text into pixels
+  globalThis.createImageBitmap = async (blob) => {
+    const px = new Uint8ClampedArray(100 * 80 * 4);
+    if ((await blob.text()) === 'solid') px[3] = 255; // pixel (0,0) opaque
+    return { px };
+  };
+  const calls = [];
+  const rec = { ok: true, id: 'ra', name: 'RA', w: 100, h: 80, rev: 5, checkpoint_rev: 0, layers: [
+    { id: 'L1', name: 'A', kind: 'raster', visible: true, opacity: 1, blend: 'normal', locked: false },
+    { id: 'L2', name: 'B', kind: 'raster', visible: true, opacity: 1, blend: 'normal', locked: false }] };
+  const er = createEngine({
+    by: { kind: 'human', id: 'u9', label: 'U9' },
+    call: async () => { throw new Error('data.get must not be used'); },
+    rpc: async (m, p) => {
+      calls.push({ m, p });
+      if (m !== 'doc') return { ok: true, ops: [] };
+      if (p.action === 'get') return rec;
+      return { ok: true, rev: 5, w: 100, h: 80, layers: [{ id: 'L1', png: png('solid') }, { id: 'L2', png: png('empty') }] };
+    },
+  });
+  assert.ok(await er.load('ra'));
+  assert.equal(er.rev, 5);
+  assert.equal(er.getPixels('L1', { x: 0, y: 0, w: 1, h: 1 }).data[3], 255, 'L1 shows the raster pixels');
+  assert.equal(er.getPixels('L2', { x: 0, y: 0, w: 1, h: 1 }).data[3], 0, 'L2 stays transparent');
+  assert.equal(calls.filter((c) => c.p.action === 'raster').length, 1);
+  // an AI `style` op (no JS handler) -> one raster call with since_rev, after the debounce
+  er.applyOp({ kind: 'style', layer: 'L1', rev: 6, args: { name: 'x' }, by: { kind: 'ai', id: 'ai', label: 'AI' } });
+  er.applyOp({ kind: 'filter', layer: 'L2', rev: 7, args: { name: 'blur' }, by: { kind: 'ai', id: 'ai', label: 'AI' } }); // coalesced
+  await new Promise((r) => setTimeout(r, 400));
+  const rs = calls.filter((c) => c.p.action === 'raster');
+  assert.equal(rs.length, 2, 'two ops, one refresh');
+  assert.equal(rs[1].p.args.since_rev, 5);
 }
 
 console.log('ui_canvas ok');

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import copy
+import os
 import uuid
 
 from PIL import Image
@@ -236,13 +238,60 @@ register_action("image_size", lambda api, doc="", w=1024, h=1024, resample="bicu
                 _resize(api, doc, {"w": w, "h": h, "resample": resample or "bicubic"}))
 
 
+def _changed_layers(api, d: dict, since: int):
+    """Layer ids touched by live ops after `since`; None = everything (undo/canvas/merge can reach any layer)."""
+    ids = set()
+    for o in ops._load(api, d["id"], since + 1, d["rev"]):
+        if o["kind"] in ("undo", "canvas", "layer.move", "layer.remove"):
+            return None
+        ids.update(x for x in (o.get("layer"), o["args"].get("into")) if x)
+    return ids
+
+
+def _raster(api, doc: str = "", layers=None, max_px: int = 0, since_rev=None, **_) -> dict:
+    """Per-layer PNG data URLs at the current rev (the panel's pixel source; layer opacity/blend stay in the doc)."""
+    d = _doc(api, doc)
+    if not d:
+        return {"ok": False, "error": f"no doc {doc!r}"}
+    want = [x["id"] for x in d["layers"] if not layers or x["id"] in layers]
+    if since_rev is not None:
+        changed = _changed_layers(api, d, int(since_rev))
+        want = [i for i in want if changed is None or i in changed] if int(since_rev) < d["rev"] else []
+    folder = os.path.join(api.local_dir("raster"), doc)
+    os.makedirs(folder, exist_ok=True)
+    cap, cv, out = int(max_px or 0), None, []
+    for lid in want:
+        path = os.path.join(folder, f"{lid}@{d['rev']}_{cap}.png")
+        if not os.path.exists(path):
+            cv = cv or ops.replay(api, doc)
+            img = cv.get(lid)
+            if cap and max(img.size) > cap:
+                k = cap / max(img.size)
+                img = img.resize((max(1, round(img.width * k)), max(1, round(img.height * k))), Image.LANCZOS)
+            img.save(path)
+        with open(path, "rb") as f:
+            out.append({"id": lid, "png": "data:image/png;base64," + base64.b64encode(f.read()).decode()})
+    for stale in os.listdir(folder):  # ponytail: only the newest rev is kept; older revs are never asked for
+        if f"@{d['rev']}_" not in stale:
+            try:
+                os.remove(os.path.join(folder, stale))
+            except OSError:
+                pass
+    return {"ok": True, "rev": d["rev"], "w": d["w"], "h": d["h"], "layers": out}
+
+
+register_action("raster", _raster)
+
+
 def register(api) -> None:
     pat = r"\bartstudio\b"
 
     def artstudio_doc(action: str, doc: str = "", query: str = "", name: str = "Untitled", w: int = 1024,
                       h: int = 1024, bg: str = "#ffffff", rev: int = 0, limit: int = 100,
                       args: dict | None = None) -> dict:
-        """Artwork docs: action new|get|list|delete|ops_since|cost (+ version actions); doc is the id."""
+        """Artwork docs: action new|get|list|delete|ops_since|cost (+ version actions); doc is the id.
+
+        raster (args layers?, max_px?, since_rev?) is panel use; AIs use preview."""
         a = {"doc": doc, "query": query, "name": name, "w": w, "h": h, "bg": bg, "rev": rev, "limit": limit,
              **(args or {})}
         fn = ACTIONS.get(action)

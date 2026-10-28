@@ -193,6 +193,38 @@ def test_presets():
     assert not t("new", args={"preset": "zzz"})["ok"]
 
 
+def _png(url):
+    import base64
+    import io
+
+    from PIL import Image
+    assert url.startswith("data:image/png;base64,")
+    return Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))).convert("RGBA")
+
+
+def test_raster_returns_layer_pngs_and_since_rev():
+    api = FakeApi()
+    doc.register(api)
+    ops.register(api)
+    did = doc.new_doc(api, "R", 64, 64)["doc"]
+    doc.layer_add(api, did, "Shape")
+    doc.layer_add(api, did, "Ink")
+    assert ops.apply_many(api, did, [
+        {"kind": "shape", "layer": "L2", "args": {"type": "rect", "box": [4, 4, 30, 30], "fill": "#118ab2"}},
+        {"kind": "stroke", "layer": "L3", "args": {"pts": [[8, 50], [56, 50]], "size": 6, "color": "#e63946"}}])["ok"]
+    r = api.tools["artstudio_doc"]("raster", did)
+    assert r["ok"] and r["rev"] == 6 and (r["w"], r["h"]) == (64, 64)
+    assert [x["id"] for x in r["layers"]] == ["L1", "L2", "L3"]
+    shape = _png(r["layers"][1]["png"])
+    assert shape.getpixel((16, 16))[3] == 255 and shape.getpixel((50, 50))[3] == 0
+    assert api.rpcs["doc"](action="raster", doc=did) == r  # second call is served from the cache
+    ops.apply_many(api, did, [{"kind": "stroke", "layer": "L3", "args": {"pts": [[8, 10]], "size": 4}}])
+    r2 = api.tools["artstudio_doc"]("raster", did, args={"since_rev": 6})
+    assert [x["id"] for x in r2["layers"]] == ["L3"] and r2["rev"] == 7
+    assert api.tools["artstudio_doc"]("raster", did, args={"since_rev": 7})["layers"] == []
+    assert [x["id"] for x in api.tools["artstudio_doc"]("raster", did, args={"layers": ["L2"], "max_px": 32})["layers"]] == ["L2"]
+
+
 def test_panel_rpcs_are_the_tools():
     api = FakeApi()
     doc.register(api)
