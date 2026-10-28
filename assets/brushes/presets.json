@@ -1,0 +1,14 @@
+{
+  "brushes": [
+    {"id": "brush.basic-round", "name": "Basic Round", "size": 19, "hardness": 1.0, "spacing": 0.25, "opacity": 1.0, "flow": 1.0, "shape": "round"},
+    {"id": "brush.soft-round", "name": "Soft Round", "size": 65, "hardness": 0.0, "spacing": 0.25, "opacity": 1.0, "flow": 1.0, "shape": "round"},
+    {"id": "brush.hard-round", "name": "Hard Round", "size": 13, "hardness": 1.0, "spacing": 0.25, "opacity": 1.0, "flow": 1.0, "shape": "round"},
+    {"id": "brush.airbrush", "name": "Airbrush", "size": 45, "hardness": 0.0, "spacing": 0.1, "opacity": 0.5, "flow": 0.5, "shape": "round"},
+    {"id": "brush.chalk", "name": "Chalk", "size": 36, "hardness": 0.5, "spacing": 0.35, "opacity": 0.8, "flow": 1.0, "shape": "square"},
+    {"id": "brush.watercolor", "name": "Watercolor", "size": 55, "hardness": 0.0, "spacing": 0.15, "opacity": 0.4, "flow": 0.6, "shape": "round"},
+    {"id": "brush.ink-rough", "name": "Ink Rough", "size": 14, "hardness": 1.0, "spacing": 0.12, "opacity": 1.0, "flow": 1.0, "shape": "round", "tip": "tips/ink-rough.png", "pressure_size": true, "size_jitter": 0.15, "angle_jitter": 1.0},
+    {"id": "brush.pencil", "name": "Pencil", "size": 6, "hardness": 0.8, "spacing": 0.1, "opacity": 0.85, "flow": 0.6, "shape": "round", "tip": "tips/pencil-grain.png", "grain": "tips/pencil-paper.png", "grain_depth": 0.7, "pressure_opacity": true, "angle_jitter": 1.0},
+    {"id": "brush.marker", "name": "Marker", "size": 24, "hardness": 1.0, "spacing": 0.08, "opacity": 0.9, "flow": 1.0, "shape": "square", "tip": "tips/marker-flat.png", "angle": 45, "pressure_size": false},
+    {"id": "brush.texture", "name": "Texture Sponge", "size": 40, "hardness": 0.5, "spacing": 0.45, "opacity": 0.9, "flow": 0.8, "shape": "round", "tip": "tips/texture-sponge.png", "scatter": 0.3, "size_jitter": 0.3, "angle_jitter": 1.0}
+  ]
+}

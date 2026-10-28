@@ -1,0 +1,142 @@
+{
+ "name": "golden blend stack",
+ "w": 64,
+ "h": 64,
+ "ops": [
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Paper"
+   }
+  },
+  {
+   "kind": "fill",
+   "layer": "L1",
+   "args": {
+    "all": true,
+    "color": "#c8a064"
+   }
+  },
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Mul",
+    "blend": "multiply",
+    "opacity": 0.8
+   }
+  },
+  {
+   "kind": "shape",
+   "layer": "L2",
+   "args": {
+    "type": "rect",
+    "box": [
+     0,
+     0,
+     40,
+     40
+    ],
+    "fill": "#ff4040"
+   }
+  },
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Scr",
+    "blend": "screen"
+   }
+  },
+  {
+   "kind": "shape",
+   "layer": "L3",
+   "args": {
+    "type": "ellipse",
+    "box": [
+     20,
+     20,
+     63,
+     63
+    ],
+    "fill": "#3040ff"
+   }
+  },
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Ovl",
+    "blend": "overlay",
+    "opacity": 0.6
+   }
+  },
+  {
+   "kind": "shape",
+   "layer": "L4",
+   "args": {
+    "type": "rect",
+    "box": [
+     10,
+     30,
+     50,
+     50
+    ],
+    "fill": "#40ff40"
+   }
+  },
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Dif",
+    "blend": "difference"
+   }
+  },
+  {
+   "kind": "shape",
+   "layer": "L5",
+   "args": {
+    "type": "rect",
+    "box": [
+     30,
+     0,
+     63,
+     25
+    ],
+    "fill": "#808080"
+   }
+  },
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Soft"
+   }
+  },
+  {
+   "kind": "shape",
+   "layer": "L6",
+   "args": {
+    "type": "ellipse",
+    "box": [
+     0,
+     40,
+     30,
+     63
+    ],
+    "fill": "#ffee00"
+   }
+  },
+  {
+   "kind": "layer.set",
+   "layer": "L6",
+   "args": {
+    "blend": "soft-light"
+   }
+  }
+ ],
+ "expect": {
+  "sha256": "58a16599cbdb355bd957f6b1477420f319159eee5e6774d2ae7520abed680459",
+  "size": [
+   64,
+   64
+  ],
+  "png": "blend_stack.png"
+ }
+}

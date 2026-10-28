@@ -1,0 +1,70 @@
+{
+ "name": "golden stroke",
+ "w": 64,
+ "h": 64,
+ "ops": [
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Paper"
+   }
+  },
+  {
+   "kind": "fill",
+   "layer": "L1",
+   "args": {
+    "all": true,
+    "color": "#ffffff"
+   }
+  },
+  {
+   "kind": "stroke",
+   "layer": "L1",
+   "args": {
+    "pts": [
+     [
+      8,
+      32
+     ],
+     [
+      32,
+      16
+     ],
+     [
+      56,
+      40
+     ]
+    ],
+    "size": 7,
+    "color": "#e63946"
+   }
+  },
+  {
+   "kind": "stroke",
+   "layer": "L1",
+   "args": {
+    "pts": [
+     [
+      10,
+      50
+     ],
+     [
+      54,
+      50
+     ]
+    ],
+    "size": 12,
+    "color": "#1d3557",
+    "opacity": 0.5
+   }
+  }
+ ],
+ "expect": {
+  "sha256": "f65057faab7f5ff2e5adaea529ed70a202d394df424d3c986c4c93e95e9e9ef6",
+  "size": [
+   64,
+   64
+  ],
+  "png": "stroke.png"
+ }
+}

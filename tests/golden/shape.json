@@ -1,0 +1,74 @@
+{
+ "name": "golden shape",
+ "w": 64,
+ "h": 64,
+ "ops": [
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Paper"
+   }
+  },
+  {
+   "kind": "fill",
+   "layer": "L1",
+   "args": {
+    "all": true,
+    "color": "#ffffff"
+   }
+  },
+  {
+   "kind": "shape",
+   "layer": "L1",
+   "args": {
+    "type": "rect",
+    "box": [
+     4,
+     4,
+     30,
+     30
+    ],
+    "fill": "#118ab2"
+   }
+  },
+  {
+   "kind": "shape",
+   "layer": "L1",
+   "args": {
+    "type": "ellipse",
+    "box": [
+     20,
+     20,
+     60,
+     58
+    ],
+    "fill": "#ef476f",
+    "stroke": "#073b4c",
+    "width": 3
+   }
+  },
+  {
+   "kind": "shape",
+   "layer": "L1",
+   "args": {
+    "type": "line",
+    "box": [
+     4,
+     60,
+     60,
+     6
+    ],
+    "stroke": "#000000",
+    "width": 3
+   }
+  }
+ ],
+ "expect": {
+  "sha256": "bca2a300c1498cf47f723607d9e538d82340080031e3467c8864aa5ea234a04b",
+  "size": [
+   64,
+   64
+  ],
+  "png": "shape.png"
+ }
+}

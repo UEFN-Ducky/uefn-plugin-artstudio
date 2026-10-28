@@ -1,0 +1,7 @@
+__pycache__/
+.pytest_cache/
+deploy/
+dist/
+*.zip
+*.pyc
+.env

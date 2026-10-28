@@ -1,0 +1,24 @@
+/* Versions panel: Ducky variables only. */
+.av { display: flex; flex-direction: column; gap: 8px; font-family: var(--font-ui); font-size: 12px; color: var(--fg); }
+.av *:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.av-bar { display: flex; gap: 6px; align-items: center; }
+.av-bar .dk-input { flex: 1; min-width: 0; }
+.av-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow: auto; }
+.av-row { position: relative; display: grid; grid-template-columns: 56px 1fr; gap: 4px 8px; padding: 6px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+.av-row::before { content: ""; position: absolute; left: -7px; top: 18px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.av-thumb { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); }
+.av-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.av-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-sub { color: var(--muted); font-size: 11px; }
+.av-chip { padding: 0 8px; border-radius: 999px; border: 1px solid var(--border); }
+.av-chip[data-kind="ai"] { border-color: var(--accent); color: var(--accent); }
+.av-acts { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.av-layers { max-width: 110px; }
+.av-error { color: var(--accent); }
+.av-merge, .av-compare { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--card); border: 1px solid var(--accent); border-radius: 10px; }
+.av-conflict { display: flex; gap: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.av-conflict legend { color: var(--muted); }
+.av-conflict input { accent-color: var(--accent); }
+.av-slider { position: relative; width: 100%; aspect-ratio: 1; background: var(--bg); border-radius: 8px; overflow: hidden; }
+.av-slider img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.av-slider__top { clip-path: inset(0 0 0 var(--pos, 50%)); }

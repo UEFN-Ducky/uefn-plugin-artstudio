@@ -1,0 +1,71 @@
+{
+ "name": "golden erase",
+ "w": 64,
+ "h": 64,
+ "ops": [
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Paper"
+   }
+  },
+  {
+   "kind": "fill",
+   "layer": "L1",
+   "args": {
+    "all": true,
+    "color": "#ffffff"
+   }
+  },
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Ink"
+   }
+  },
+  {
+   "kind": "stroke",
+   "layer": "L2",
+   "args": {
+    "pts": [
+     [
+      8,
+      32
+     ],
+     [
+      56,
+      32
+     ]
+    ],
+    "size": 20,
+    "color": "#e63946"
+   }
+  },
+  {
+   "kind": "stroke",
+   "layer": "L2",
+   "args": {
+    "pts": [
+     [
+      20,
+      32
+     ],
+     [
+      44,
+      32
+     ]
+    ],
+    "size": 10,
+    "erase": true
+   }
+  }
+ ],
+ "expect": {
+  "sha256": "1e21208f3db032e6933df929dbe01a7c37fcfad360b3160f0d5a56c6a25d9ea4",
+  "size": [
+   64,
+   64
+  ],
+  "png": "erase.png"
+ }
+}

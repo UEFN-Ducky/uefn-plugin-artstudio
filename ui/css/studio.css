@@ -1,0 +1,85 @@
+/* Art Studio shell. Layout ported from the coloring workspace scss; colors only through Ducky variables. */
+.studio { display: flex; flex-direction: column; height: 100vh; margin: 0; gap: 8px; padding: 8px; box-sizing: border-box; overflow: hidden; user-select: none; font-family: var(--font-ui); font-size: 12px; color: var(--fg); background: var(--bg); }
+.studio *, .studio *::before, .studio *::after { box-sizing: border-box; }
+.studio :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* top bar: menu, doc picker, tool options */
+.studio__bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 34px; }
+.studio__menu, .studio__options { display: flex; align-items: center; gap: 8px; }
+.studio__options { flex: 1; min-width: 0; }
+.studio__docs { gap: 4px; }
+.studio__docs .dk-input { min-width: 140px; }
+
+/* body: floating side cards around a frameless stage */
+.studio__body { flex: 1; min-height: 0; display: flex; gap: 8px; }
+.studio__dock { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-height: 0; padding: 4px; }
+.studio__dock--left { width: 56px; flex: none; align-items: center; }
+.studio__dock--right { width: 300px; min-width: 200px; max-width: 400px; flex: none; resize: horizontal; }
+.studio__stage { position: relative; flex: 1; min-width: 0; min-height: 0; }
+.studio__canvas { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.studio__tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.studio__group { display: flex; flex-direction: column; gap: 8px; }
+.studio__group[hidden], .studio__state[hidden] { display: none; }
+.studio__state { position: absolute; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+.studio [data-group][aria-selected="true"] { background: var(--accent); color: var(--bg); }
+
+/* toolbar (tool-panel) */
+.ps-tools-panel { display: flex; flex-direction: column; gap: 2px; width: 48px; }
+.ps-tool-group { display: flex; flex-direction: column; gap: 2px; }
+.ps-tool-separator { height: 1px; margin: 4px 0; background: var(--border); }
+.ps-tool { position: relative; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center; background: none; color: var(--muted); border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
+.ps-tool:hover { background: var(--card); border-color: var(--border); color: var(--fg); }
+.ps-tool.active, .ps-tool[aria-pressed="true"] { background: var(--card); border-color: var(--accent); color: var(--accent); }
+.ps-tool__more { position: absolute; right: 2px; bottom: 2px; font-size: 8px; color: var(--muted); }
+.ps-colors { position: relative; width: 40px; height: 40px; margin-top: auto; }
+.ps-colors__fg, .ps-colors__bg { position: absolute; width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.ps-colors__fg { top: 0; left: 0; z-index: 2; }
+.ps-colors__bg { right: 0; bottom: 0; z-index: 1; }
+
+/* tool options bar */
+.ps-options { display: flex; align-items: center; gap: 12px; min-height: 34px; padding: 0 8px; }
+.ps-option { display: flex; align-items: center; gap: 4px; }
+.ps-option label, .ps-option span { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.ps-option input[type="number"] { width: 56px; padding: 2px 6px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; }
+.ps-option input[type="range"] { width: 100px; accent-color: var(--accent); }
+.ps-option input[type="number"]:focus { border-color: var(--accent); }
+
+/* canvas area */
+.ps-canvas-area { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+.ps-viewport { flex: 1; position: relative; overflow: auto; display: flex; align-items: center; justify-content: center; }
+.ps-canvas-wrapper { position: relative; transform-origin: center center; }
+.ps-canvas { position: absolute; top: 0; left: 0; image-rendering: pixelated; }
+.ps-layer-canvas { z-index: 1; }
+.ps-composite { z-index: 10; cursor: crosshair; }
+.ps-overlay-layer { z-index: 100; pointer-events: none; }
+.ps-brush-cursor { position: absolute; z-index: 200; pointer-events: none; border: 2px solid var(--fg); border-radius: 50%; box-shadow: 0 0 0 1px var(--bg); opacity: 0.8; }
+.ps-ruler { position: absolute; z-index: 200; background: var(--card); border: 1px solid var(--border); color: var(--muted); font-size: 9px; }
+.ps-ruler--h { top: 0; left: 18px; right: 0; height: 18px; }
+.ps-ruler--v { top: 18px; left: 0; bottom: 0; width: 18px; }
+.ps-guides { position: absolute; inset: 0; z-index: 150; pointer-events: none; }
+.ps-guide { position: absolute; background: var(--accent); opacity: 0.5; }
+.ps-guide--h { left: 0; right: 0; height: 1px; }
+.ps-guide--v { top: 0; bottom: 0; width: 1px; }
+.ps-grid { position: absolute; inset: 0; z-index: 140; pointer-events: none; opacity: 0.3;
+  background-image: repeating-linear-gradient(0deg, var(--border) 0, var(--border) 1px, transparent 1px, transparent 20px),
+                    repeating-linear-gradient(90deg, var(--border) 0, var(--border) 1px, transparent 1px, transparent 20px); }
+.ps-status { display: flex; align-items: center; height: 22px; padding: 0 8px; font-size: 11px; color: var(--muted); }
+.ps-status > * { padding: 0 8px; border-right: 1px solid var(--border); }
+.ps-status > :last-child { margin-left: auto; border-right: none; }
+
+/* panel contents (layers, history, color...) share the card rhythm */
+.ps-panel-title { margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; }
+.ps-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.ps-row:hover { background: var(--card); border-color: var(--border); }
+.ps-row.selected { border-color: var(--accent); background: var(--card); }
+
+/* loading overlay and save indicator */
+.ps-saving { position: fixed; top: 12px; right: 12px; z-index: 1000; display: flex; align-items: center; gap: 6px; padding: 4px 12px; background: var(--card); color: var(--fg); border: 1px solid var(--border); border-radius: 999px; }
+
+/* toasts */
+.ps-toasts { position: fixed; right: 12px; bottom: 12px; z-index: 2000; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.ps-toast { max-width: 320px; padding: 6px 12px; background: var(--card); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.ps-toast--error { border-color: var(--red); }
+.ps-toast--ok { border-color: var(--green); }
+
+@media (max-width: 768px) { .studio__dock--right { display: none; } }

@@ -1,0 +1,6 @@
+{
+  "ui":       {"file": "ui/vendor/expo-google-fonts-inter@0.4.2/400Regular/Inter_400Regular.ttf",                 "family": "Inter",        "version": "0.4.2", "license": "OFL-1.1"},
+  "ui_bold":  {"file": "ui/vendor/expo-google-fonts-inter@0.4.2/700Bold/Inter_700Bold.ttf",                       "family": "Inter Bold",   "version": "0.4.2", "license": "OFL-1.1"},
+  "hand":     {"file": "ui/vendor/expo-google-fonts-patrick-hand@0.4.1/400Regular/PatrickHand_400Regular.ttf",    "family": "Patrick Hand", "version": "0.4.1", "license": "OFL-1.1"},
+  "title":    {"file": "ui/vendor/expo-google-fonts-bangers@0.4.1/400Regular/Bangers_400Regular.ttf",             "family": "Bangers",      "version": "0.4.1", "license": "OFL-1.1"}
+}

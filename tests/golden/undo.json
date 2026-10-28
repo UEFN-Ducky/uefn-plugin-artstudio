@@ -1,0 +1,71 @@
+{
+ "name": "golden undo",
+ "w": 64,
+ "h": 64,
+ "ops": [
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Paper"
+   }
+  },
+  {
+   "kind": "fill",
+   "layer": "L1",
+   "args": {
+    "all": true,
+    "color": "#ffffff"
+   }
+  },
+  {
+   "kind": "stroke",
+   "layer": "L1",
+   "args": {
+    "pts": [
+     [
+      8,
+      16
+     ],
+     [
+      56,
+      16
+     ]
+    ],
+    "size": 8,
+    "color": "#118ab2"
+   }
+  },
+  {
+   "kind": "stroke",
+   "layer": "L1",
+   "args": {
+    "pts": [
+     [
+      8,
+      40
+     ],
+     [
+      56,
+      40
+     ]
+    ],
+    "size": 16,
+    "color": "#ef476f"
+   }
+  },
+  {
+   "kind": "undo",
+   "args": {
+    "target": 4
+   }
+  }
+ ],
+ "expect": {
+  "sha256": "983e763793a954da6165504e063f83853719482b0145a3e0c300cc35bde2af99",
+  "size": [
+   64,
+   64
+  ],
+  "png": "undo.png"
+ }
+}

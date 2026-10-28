@@ -1,0 +1,422 @@
+{
+  "id": "artstudio",
+  "kind": "plugin",
+  "version": "1.0.0",
+  "label": "AI Art Studio",
+  "description": "AI-driven paint, vector, retouch and export studio for game art, live with your team",
+  "min_app_version": "1.0.0",
+  "default_enabled": false,
+  "secret_keys": [],
+  "data_locks": {
+    "doc.": "auto",
+    "op.": "none",
+    "brush.": "auto",
+    "style.": "auto"
+  },
+  "data_local": [
+    "prefs."
+  ],
+  "tool_concurrency": 4,
+  "contributes": {
+    "agent.tools": {
+      "category": "artstudio",
+      "intent_pattern": "\\b(artstudio|art studio|paint|painting|draw|drawing|brush|retouch|illustration|ui kit|icon set|sprite|texture art|9-slice|nine.slice)\\b",
+      "plan_tools": [
+        "artstudio_catalog",
+        "artstudio_preview"
+      ],
+      "destructive_tools": [
+        "artstudio_ai",
+        "artstudio_to_uefn"
+      ]
+    },
+    "walkthrough": {
+      "id": "artstudio",
+      "title": "AI Art Studio",
+      "auto_start": "first_enable",
+      "steps": [
+        {
+          "target": "header.button.main",
+          "title": "Art Studio is on",
+          "body": "Open the studio here: canvas, tools, layers, and the live team tab. Ask Ducky to draw and the strokes appear on the canvas.",
+          "advance": "require_click"
+        },
+        {
+          "target": "header.automations",
+          "title": "Workflows",
+          "body": "Icon set, Retouch and AI image op templates are in Workflows.",
+          "advance": "next"
+        },
+        {
+          "target": "settings.tab.general",
+          "title": "Settings",
+          "body": "Preview size and how often pixel checkpoints are saved.",
+          "advance": "next"
+        }
+      ]
+    },
+    "ui.panels": [
+      {
+        "id": "main",
+        "title": "Art Studio",
+        "icon": "duck",
+        "entry": "ui/index.html"
+      }
+    ],
+    "header.buttons": [
+      {
+        "id": "main",
+        "title": "Art Studio",
+        "icon": "duck",
+        "action": "panel:main",
+        "order": 60
+      }
+    ],
+    "settings.tabs": [
+      {
+        "id": "general",
+        "label": "Art Studio"
+      }
+    ],
+    "settings.sections": [
+      {
+        "id": "studio",
+        "tab": "general",
+        "title": "Studio",
+        "fields": [
+          {
+            "id": "preview_max_px",
+            "label": "Preview max size (px)",
+            "type": "string",
+            "default": "512"
+          },
+          {
+            "id": "checkpoint_interval",
+            "label": "Pixel checkpoint every N ops",
+            "type": "string",
+            "default": "50"
+          }
+        ]
+      }
+    ],
+    "automations": {
+      "nodes": [
+        {
+          "id": "artstudio.ai",
+          "label": "AI image op",
+          "group": "AI Art Studio",
+          "config_fields": [
+            {
+              "id": "op",
+              "label": "remove_bg | upscale | inpaint | style",
+              "type": "string"
+            },
+            {
+              "id": "doc",
+              "label": "Doc",
+              "type": "string"
+            },
+            {
+              "id": "layer",
+              "label": "Layer",
+              "type": "string"
+            },
+            {
+              "id": "prompt",
+              "label": "Prompt",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "id": "artstudio.retouch",
+          "label": "Retouch layer",
+          "group": "AI Art Studio",
+          "config_fields": [
+            {
+              "id": "doc",
+              "label": "Doc",
+              "type": "string"
+            },
+            {
+              "id": "layer",
+              "label": "Layer",
+              "type": "string"
+            }
+          ],
+          "inputs": [
+            {
+              "id": "ops",
+              "label": "Retouch ops",
+              "type": "json"
+            }
+          ]
+        },
+        {
+          "id": "artstudio.ui_kit",
+          "label": "Make UI kit",
+          "group": "AI Art Studio",
+          "config_fields": [
+            {
+              "id": "doc",
+              "label": "Doc",
+              "type": "string"
+            },
+            {
+              "id": "prompt",
+              "label": "Style prompt",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "id": "artstudio.icon_set",
+          "label": "Make icon set",
+          "group": "AI Art Studio",
+          "config_fields": [
+            {
+              "id": "doc",
+              "label": "Doc",
+              "type": "string"
+            },
+            {
+              "id": "prompt",
+              "label": "Icon names / style",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "templates": [
+        {
+          "id": "artstudio-icon-set",
+          "label": "Icon set",
+          "category": "AI Art Studio",
+          "description": "Chat start \u2192 Agent plans the icons and style \u2192 Icon set \u2192 Finish.",
+          "graph": {
+            "nodes": [
+              {
+                "id": "s",
+                "type": "start.chat",
+                "x": 0,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "a",
+                "type": "pipeline.agent",
+                "x": 160,
+                "y": 0,
+                "config": {
+                  "prompt": "List the icons and one shared style (stroke, palette, size)."
+                }
+              },
+              {
+                "id": "n",
+                "type": "artstudio.icon_set",
+                "x": 320,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "f",
+                "type": "pipeline.finish",
+                "x": 480,
+                "y": 0,
+                "config": {}
+              }
+            ],
+            "edges": [
+              {
+                "source": "s",
+                "target": "a",
+                "kind": "main"
+              },
+              {
+                "source": "a",
+                "target": "n",
+                "kind": "main"
+              },
+              {
+                "source": "n",
+                "target": "f",
+                "kind": "main"
+              }
+            ]
+          }
+        },
+        {
+          "id": "artstudio-retouch",
+          "label": "Retouch an image",
+          "category": "AI Art Studio",
+          "description": "Chat start \u2192 Agent decides the retouch steps \u2192 Retouch layer \u2192 Finish.",
+          "graph": {
+            "nodes": [
+              {
+                "id": "s",
+                "type": "start.chat",
+                "x": 0,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "a",
+                "type": "pipeline.agent",
+                "x": 160,
+                "y": 0,
+                "config": {
+                  "prompt": "Inspect the image and decide the retouch steps."
+                }
+              },
+              {
+                "id": "n",
+                "type": "artstudio.retouch",
+                "x": 320,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "f",
+                "type": "pipeline.finish",
+                "x": 480,
+                "y": 0,
+                "config": {}
+              }
+            ],
+            "edges": [
+              {
+                "source": "s",
+                "target": "a",
+                "kind": "main"
+              },
+              {
+                "source": "a",
+                "target": "n",
+                "kind": "main"
+              },
+              {
+                "source": "n",
+                "target": "f",
+                "kind": "main"
+              }
+            ]
+          }
+        },
+        {
+          "id": "artstudio-ai",
+          "label": "AI image op",
+          "category": "AI Art Studio",
+          "description": "Chat start \u2192 Agent \u2192 AI image op (remove background, upscale, inpaint, style) \u2192 Finish.",
+          "graph": {
+            "nodes": [
+              {
+                "id": "s",
+                "type": "start.chat",
+                "x": 0,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "a",
+                "type": "pipeline.agent",
+                "x": 160,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "n",
+                "type": "artstudio.ai",
+                "x": 320,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "f",
+                "type": "pipeline.finish",
+                "x": 480,
+                "y": 0,
+                "config": {}
+              }
+            ],
+            "edges": [
+              {
+                "source": "s",
+                "target": "a",
+                "kind": "main"
+              },
+              {
+                "source": "a",
+                "target": "n",
+                "kind": "main"
+              },
+              {
+                "source": "n",
+                "target": "f",
+                "kind": "main"
+              }
+            ]
+          }
+        },
+        {
+          "id": "artstudio-run",
+          "label": "Run AI Art Studio",
+          "description": "Chat start \u2192 Agent \u2192 AI Art Studio \u2192 Finish.",
+          "graph": {
+            "nodes": [
+              {
+                "id": "s",
+                "type": "start.chat",
+                "x": 0,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "a",
+                "type": "pipeline.agent",
+                "x": 160,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "n",
+                "type": "artstudio.ui_kit",
+                "x": 320,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "f",
+                "type": "pipeline.finish",
+                "x": 480,
+                "y": 0,
+                "config": {}
+              }
+            ],
+            "edges": [
+              {
+                "source": "s",
+                "target": "a",
+                "kind": "main"
+              },
+              {
+                "source": "a",
+                "target": "n",
+                "kind": "main"
+              },
+              {
+                "source": "n",
+                "target": "f",
+                "kind": "main"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "backend": {
+    "entry": "backend",
+    "register": "register"
+  },
+  "data_sharing": true
+}

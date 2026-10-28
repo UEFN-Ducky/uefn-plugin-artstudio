@@ -1,0 +1,62 @@
+{
+ "name": "golden fill",
+ "w": 64,
+ "h": 64,
+ "ops": [
+  {
+   "kind": "layer.add",
+   "args": {
+    "name": "Paper"
+   }
+  },
+  {
+   "kind": "fill",
+   "layer": "L1",
+   "args": {
+    "all": true,
+    "color": "#ffffff"
+   }
+  },
+  {
+   "kind": "shape",
+   "layer": "L1",
+   "args": {
+    "type": "rect",
+    "box": [
+     8,
+     8,
+     55,
+     55
+    ],
+    "stroke": "#000000",
+    "width": 2
+   }
+  },
+  {
+   "kind": "fill",
+   "layer": "L1",
+   "args": {
+    "x": 30,
+    "y": 30,
+    "color": "#ffd166"
+   }
+  },
+  {
+   "kind": "fill",
+   "layer": "L1",
+   "args": {
+    "x": 2,
+    "y": 2,
+    "color": "#06d6a0"
+   }
+  }
+ ],
+ "expect": {
+  "sha256": "6c99beb609ed6e539fabc2e0bc34b7a2da53585ad63b8f3028e0f497dd1e7229",
+  "size": [
+   64,
+   64
+  ],
+  "png": "fill.png"
+ }
+}
