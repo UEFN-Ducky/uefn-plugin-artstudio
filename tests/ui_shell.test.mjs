@@ -8,7 +8,8 @@ import { mountDock, mountPanels, shellRun, PANELS, DOCK_MAX } from '../ui/js/cor
 // ---- every data-panel mount is in the page, and every PANELS entry has a mount point + file ----
 const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
 const mounts = [...html.matchAll(/data-panel="(\w+)"/g)].map((m) => m[1]);
-for (const m of ['menu', 'options', 'toolbar', 'canvas', 'color', 'swatches', 'brushes', 'layers', 'history', 'navigator',
+assert.ok(!mounts.includes('options'), 'no options strip');
+for (const m of ['menu', 'toolbar', 'canvas', 'color', 'swatches', 'brushes', 'layers', 'history', 'navigator',
   'watch', 'live', 'versions', 'feedback', 'chat', 'properties', 'adjustments', 'filters', 'layerstyles']) {
   assert.ok(mounts.includes(m), `missing mount ${m}`);
 }
@@ -213,13 +214,51 @@ assert.equal([...html.matchAll(/data-dock-group="/g)].length, 5);
 const css = readFileSync(new URL('../ui/css/studio.css', import.meta.url), 'utf8');
 const navs = [...html.matchAll(/<nav class="studio__tabs"[\s\S]*?<\/nav>/g)].map((m) => m[0]);
 assert.equal(navs.length, 5);
-for (const n of navs) assert.ok(n.includes('data-tab=') && n.includes('data-group-menu') && n.includes('data-group-toggle'), 'header row');
+for (const n of navs) assert.ok(n.includes('data-tab=') && n.includes('data-group-toggle'), 'header row');
 assert.match(css, /\.studio__tabs \{[^}]*flex-wrap: nowrap/);
 // top bar is one card strip with New / Open / Watch AI inside it
 assert.match(css, /\.studio__bar \{[^}]*background: var\(--card\)/);
 assert.match(css, /\.studio__bar \{[^}]*border-bottom: 1px solid var\(--border\)/);
 const topBar = html.match(/<header class="studio__bar">[\s\S]*?<\/header>/)[0];
-for (const a of ['new', 'open', 'watch']) assert.ok(topBar.includes(`data-act="${a}"`), `${a} in top bar`);
+assert.ok(topBar.includes('data-act="new"') && topBar.includes('data-doc-tabs'), 'New and doc tabs in the top bar');
+assert.ok(!/data-act="(open|watch)"|Watch AI|AI ↗/.test(topBar), 'no AI buttons / Open in the top bar');
+assert.match(css, /\.studio__bar \{[^}]*height: 32px/);
+// each header has at most 2 control buttons (⋮ menu, chevron); the dock-group menu is only on groups that have items
+for (const n of navs) assert.ok((n.match(/<button class="dk-btn/g) || []).length <= 2, 'header controls');
+// closed tabs stay closed across loadDocs (polls) and reloads
+{
+  const { openDocs, pickDoc } = await import('../ui/js/core/dock.js');
+  const docs = [{ id: 'a' }, { id: 'b' }];
+  assert.deepEqual(openDocs(docs, ['a']).map((d) => d.id), ['b']);
+  assert.equal(pickDoc(docs, ['a'], 'a'), 'b'); // poll never reselects a closed doc
+  assert.equal(pickDoc(docs, ['a', 'b'], 'a'), null);
+  const app = readFileSync(new URL('../ui/js/app.js', import.meta.url), 'utf8');
+  assert.match(app, /closed: prefs\.get\("closedDocs"\)/);
+  assert.match(app, /prefs\.set\("closedDocs"/);
+}
+// collapsed dock: a 40 px strip, icon click opens one flyout holding that panel's mount, Esc / outside / same icon close it
+{
+  const tL = el({ tab: 'layers' }), tH = el({ tab: 'history' }), tC = el({ tab: 'color' });
+  const bL = el({ tabBody: 'layers' }, [el({ panel: 'layers' })]), bH = el({ tabBody: 'history' }), bC = el({ tabBody: 'color' });
+  const r = el({}, [el({ dockGroup: 'layers' }, [tL, tH, bL, bH]), el({ dockGroup: 'color' }, [tC, bC])]);
+  const d = mountDock(r, { prefs: { get: () => undefined, set() {} } });
+  d.toggleDock(true);
+  assert.ok(r.classList.contains('is-collapsed'));
+  assert.ok(bL.hidden && bH.hidden && bC.hidden, 'collapsed: no body shows');
+  r.fire('click', { target: tL });
+  assert.equal(bL.hidden, false); assert.ok(bL.classList.contains('is-fly'));
+  r.fire('click', { target: tC }); // only one at a time
+  assert.ok(bL.hidden && !bC.hidden);
+  assert.equal(d.handleKey({ key: 'Escape' }), true);
+  assert.ok(bC.hidden && !d.flyout);
+  r.fire('click', { target: tH }); assert.equal(bH.hidden, false);
+  r.fire('click', { target: tH }); assert.ok(bH.hidden); // same icon closes
+  r.fire('click', { target: tL }); d.handleOutside(el({}));
+  assert.ok(bL.hidden, 'outside click closes');
+  assert.match(css, /\.studio__dock\.is-collapsed \{[^}]*width: 40px/);
+  d.toggleDock(false); // expanding shows the tab bodies again
+  assert.equal(bL.hidden, false);
+}
 // ---- askPrompt: genfill with no prompt asks through the dialog, then posts inpaint ----
 const rp = []; const titles = []; let formVal;
 const pctx = {

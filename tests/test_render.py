@@ -113,7 +113,8 @@ def test_preview_writes_into_output_dir(tmp_path):
 def test_preview_reply_is_small():
     api, did = _preview_doc()
     r = render.preview(api, did, region=[0, 0, 256, 180])
-    r["path"] = r["chat_view"]["media"][0] = os.path.join("p", os.path.basename(r["path"]))  # host path varies
+    assert "chat_view" not in r  # the path alone shows the image on the chat card
+    r["path"] = os.path.join("p", os.path.basename(r["path"]))  # host path varies
     assert len(json.dumps(r, separators=(",", ":"))) < 300
 
 

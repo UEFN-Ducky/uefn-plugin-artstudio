@@ -6,6 +6,13 @@ import { openMenu } from '../ui/menu.js';
 import { dialog } from '../ui/dialog.js';
 
 export const deleteSwatch = (cs, hex) => cs.set((s) => ({ swatches: s.swatches.filter((c) => c !== hex) }));
+/** Appends hex to the swatches; false (nothing added) when it is already there. */
+export function addSwatch(cs, hex) {
+  const s = cs.get();
+  if (s.swatches.some((c) => c.toLowerCase() === hex.toLowerCase())) return false;
+  cs.set({ swatches: [...s.swatches, hex] });
+  return true;
+}
 /** Names live beside the list: swatchNames[hex] = name ('' removes). */
 export const renameSwatch = (cs, hex, name) => cs.set((s) => {
   const names = { ...(s.swatchNames || {}) };
@@ -84,8 +91,8 @@ export function mount(el, ctx) {
     const chip = ev.target.closest('[data-color]');
     if (chip) return cs.set({ foreground: chip.dataset.color });
     if (ev.target.closest('[data-act="add"]')) {
-      const s = cs.get();
-      if (!s.swatches.some((c) => c.toLowerCase() === s.foreground.toLowerCase())) cs.set({ swatches: [...s.swatches, s.foreground] });
+      if (addSwatch(cs, cs.get().foreground)) note = '';
+      else { note = 'Already in swatches'; render(); setTimeout(() => { note = ''; render(); }, 2000); }
     }
   });
   el.addEventListener('contextmenu', (ev) => {

@@ -67,6 +67,9 @@ def resolve(args: dict) -> dict:
     cfg = dict(DEFAULTS)
     cfg.update({k: v for k, v in (doc or {}).items() if k in DEFAULTS or k in ("tip", "grain")})
     cfg.update({k: v for k, v in args.items() if k not in ("pts", "points", "brush") and v is not None})
+    for k in ("hardness", "spacing", "flow", "opacity"):  # the panel's canvas sends percents (hardness 100, spacing 25), AI callers fractions
+        if float(cfg[k]) > 1:
+            cfg[k] = float(cfg[k]) / 100
     return cfg
 
 
@@ -201,9 +204,10 @@ def dab_mask(d: float, hardness: float, shape: str, tip, angle: float, alpha: fl
     elif shape == "square":
         m = Image.new("L", (n, n), 255)
     else:
-        g = Image.radial_gradient("L").resize((n, n), Image.BILINEAR)  # 0 centre -> 255 edge
+        g = Image.radial_gradient("L").resize((n, n), Image.BILINEAR)  # 0 centre -> 255 at the corners (edge midpoints are 255/sqrt2)
         h = min(0.999, max(0.0, hardness))
-        lut = [255 if i / 255 <= h else max(0, int(255 * (1 - i / 255) / (1 - h))) for i in range(256)]
+        t = [min(1.0, i / 255 * math.sqrt(2)) for i in range(256)]  # distance as a fraction of the radius, 1 = the dab edge
+        lut = [255 if x <= h else max(0, int(255 * (1 - x) / (1 - h))) for x in t]
         m = g.point(lut)
     a = round(alpha * 32) / 32
     m = m.point([int(i * a) for i in range(256)])

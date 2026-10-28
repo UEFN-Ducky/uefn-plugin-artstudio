@@ -49,7 +49,8 @@ export function createHighlightTool(ctx) {
   ctx.host.append(svg);
 
   let pts = [], drawing = false, last = null;
-  const variant = () => ({ 'highlight-lasso': 'lasso', 'highlight-brush': 'brush' }[ctx.getVariant?.()] || 'rect');
+  // an explicit lasso / brush tool variant wins; the plain Highlight tool follows the right-click Mode option
+  const variant = () => ({ 'highlight-lasso': 'lasso', 'highlight-brush': 'brush' }[ctx.getVariant?.()] || ({ lasso: 'lasso', brush: 'brush' }[ctx.getOpts?.().highlightMode]) || 'rect');
   const toScreen = (p) => ctx.engine.view?.docToScreen?.(p) || p;
 
   const draw = (region) => {

@@ -165,6 +165,13 @@ def alpha_row(img, y):
 
 
 class Engine(unittest.TestCase):
+    def test_single_click_dab_is_round(self):
+        for extra in ({}, {'hardness': 100, 'opacity': 1, 'flow': 100, 'spacing': 25}, {'hardness': 1.0}):
+            img = engine.paint_stroke(Image.new('RGBA', (100, 100)), {'pts': [[50, 50, 1]], 'size': 30, **extra})
+            self.assertEqual(img.getpixel((50, 50))[3], 255, extra)
+            for x, y in ((36, 36), (64, 36), (36, 64), (64, 64)):  # bounding-box corners
+                self.assertEqual(img.getpixel((x, y))[3], 0, (extra, x, y))
+
     def test_three_points_continuous_coverage(self):
         img = engine.paint_stroke(Image.new("RGBA", (100, 60)), {"pts": [[10, 30], [50, 30], [90, 30]], "size": 10})
         self.assertTrue(all(a > 200 for a in alpha_row(img, 30)[10:91]))

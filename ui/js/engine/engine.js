@@ -24,6 +24,8 @@ const toHex = ({ r, g, b }) => '#' + [r, g, b].map((v) => Math.round(v).toString
 
 const PIXEL_KINDS = new Set(['stroke', 'fill', 'shape', 'text', 'image.place', 'retouch', 'gradient', 'clone', 'heal',
   'dodge', 'burn', 'sponge', 'smudge', 'blur_brush', 'sharpen_brush', 'filter', 'style', 'transform', 'mask', 'clip']);
+// Tool modules (registry parents) that write pixels: brush, pencil, eraser, clone, heal, tone, smudge/blur, gradient, fill, shape, pen, text, move.
+const PAINTING = new Set(['brush', 'pencil', 'eraser', 'stamp', 'heal', 'dodge', 'blur', 'gradient', 'fill', 'shape', 'pen', 'text', 'move']);
 const LAYER_FIELDS = ['name', 'visible', 'opacity', 'blend', 'locked', 'mask', 'text', 'adjust'];
 
 const META = new Set(['kind', 'layer', 'id', 'rev', 'cid', 'by', 'ts', 't', 'doc', 'args']);
@@ -659,6 +661,12 @@ export function createEngine({ rpc, call, by }) {
     // ---- pointer / key input: transform handles, pan, zoom, rotate and the brush HUD come first; false = give it to the tool ----
     get tool() { return tool; },
     setTool(t) { tool = t; },
+    /** Pointer-down gate: false (and one toast) when a painting tool (parent id) presses on a locked layer; the tool must not start. */
+    pressAllowed(parentId, layer, toast) {
+      if (!PAINTING.has(parentId) || !layerOf(layer)?.locked) return true;
+      toast?.('Layer is locked');
+      return false;
+    },
     get selection() { return selection; },
     get transform() { return tf; },
     get hud() { return hud; },
@@ -739,7 +747,7 @@ export function createEngine({ rpc, call, by }) {
 /** Canvas panel: <canvas> + rAF paint + pointer/wheel/key routing (engine.input first, then engine.tool). */
 export async function mount(el, ctx) {
   const { getActive, getTool, onChange, toolOptions } = await import('../core/tools.js');
-  const { createToolFor, optsFor } = await import('../tools/registry.js');
+  const { createToolFor, optsFor, parentOf } = await import('../tools/registry.js');
   const { polygonMask } = await import('./selection.js');
   const cv = Object.assign(document.createElement('canvas'), { tabIndex: 0 });
   cv.style.cssText = 'width:100%;height:100%;display:block;touch-action:none';
@@ -790,6 +798,7 @@ export async function mount(el, ctx) {
   tctx.newTextLayer = async (props) => { const id = await eng.addLayer({ kind: 'text', ...props }); if (id) activeLayer = id; return id; };
   // Highlight tool (K): drag a region -> the feedback popup opens at it with the crop; also announced on the bus
   tctx.host = el;
+  tctx.toast = (m) => ctx.toast?.(m); // tools say why nothing happened (clone without a source)
   tctx.getVariant = getActive;
   tctx.onRegion = async (r) => {
     const { openFeedbackPopup } = await import('../feedback/popup.js');
@@ -837,11 +846,14 @@ export async function mount(el, ctx) {
     const b = ctx.brush?.get?.(); // the brush store may be created after this panel: seed the HUD at press time
     if (b) eng.setBrush({ size: b.size, hardness: b.hardness });
     const e = evOf(ev);
-    if (!eng.input.pointerDown(pos(ev), e) && ev.button === 0) eng.tool?.pointerDown?.(docPt(ev), e);
+    if (eng.input.pointerDown(pos(ev), e) || ev.button !== 0) return;
+    if (!(pressOk = eng.pressAllowed(parentOf(getActive()), layerId(), (m) => ctx.toast?.(m)))) return; // locked layer: the tool never starts
+    eng.tool?.pointerDown?.(docPt(ev), e);
   });
-  cv.addEventListener('pointermove', (ev) => { if (eng.doc && !eng.input.pointerMove(pos(ev), evOf(ev))) eng.tool?.pointerMove?.(docPt(ev), evOf(ev)); });
-  cv.addEventListener('pointerup', (ev) => { if (eng.doc && !eng.input.pointerUp(pos(ev), evOf(ev))) eng.tool?.pointerUp?.(docPt(ev), evOf(ev)); });
-  cv.addEventListener('dblclick', (ev) => { if (eng.doc) eng.tool?.dblClick?.(docPt(ev), evOf(ev)); });
+  let pressOk = true; // false for a whole press on a locked layer, so move / up never reach the tool either
+  cv.addEventListener('pointermove', (ev) => { if (eng.doc && !eng.input.pointerMove(pos(ev), evOf(ev)) && pressOk) eng.tool?.pointerMove?.(docPt(ev), evOf(ev)); });
+  cv.addEventListener('pointerup', (ev) => { if (eng.doc && !eng.input.pointerUp(pos(ev), evOf(ev)) && pressOk) eng.tool?.pointerUp?.(docPt(ev), evOf(ev)); pressOk = true; });
+  cv.addEventListener('dblclick', (ev) => { if (eng.doc && eng.pressAllowed(parentOf(getActive()), layerId())) eng.tool?.dblClick?.(docPt(ev), evOf(ev)); });
   cv.addEventListener('wheel', (ev) => {
     const p = pos(ev);
     if (eng.input.wheel({ altKey: ev.altKey, deltaY: ev.deltaY, x: p.x, y: p.y })) ev.preventDefault();
@@ -859,6 +871,8 @@ export async function mount(el, ctx) {
   // HUD edits write the shared brush store (options bar and Brushes panel follow it) and also go out on the bus as 'brush.hud'
   eng.onBrushHud((b) => { ctx.brush?.set?.(b); ctx.bus.emit('brush.hud', b); });
   ctx.bus.on('brush.sync', (b) => eng.setBrush(b));
+  // The size / hardness popover and [ ] shortcuts only emit 'brush.hud' (commands.js setBrush): land them in the store the strokes read
+  ctx.bus.on('brush.hud', (b) => { const cur = ctx.brush?.get?.(); if (cur && (b.size !== cur.size || b.hardness !== cur.hardness)) ctx.brush.set({ size: b.size, hardness: b.hardness }); });
 
   const open = (id) => { if (id && id !== eng.doc?.id) eng.load(id); };
   ctx.bus.on('doc', ({ doc }) => open(doc));

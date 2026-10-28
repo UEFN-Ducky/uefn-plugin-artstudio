@@ -24,7 +24,7 @@ export function createCloneTool(ctx) {
     get source() { return source; },
     pointerDown(p, e = {}) {
       if (e.altKey) { source = { x: p.x, y: p.y }; return; }
-      if (!source) return; // nothing to copy from yet
+      if (!source) return ctx.toast?.('Alt-click to set the clone source first');
       pts = [p];
     },
     pointerMove(p) {

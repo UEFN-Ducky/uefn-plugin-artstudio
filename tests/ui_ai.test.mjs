@@ -1,46 +1,47 @@
 // node tests/ui_ai.test.mjs  (run from the plugin folder)
 import assert from 'node:assert/strict';
-import { barModel, barPosition, createTaskbar } from '../ui/js/ai/taskbar.js';
+import { readFileSync } from 'node:fs';
+import { barModel, agentOptions, createTaskbar, NEW_AGENT, SELECTION_HINT } from '../ui/js/ai/taskbar.js';
+const taskbarSrc = readFileSync(new URL('../ui/js/ai/taskbar.js', import.meta.url), 'utf8');
 
-const labels = (m) => m.buttons.map((b) => b.label);
+// picker: artwork agent first, known Ducky chats, then "+ New agent…"
+assert.deepEqual(agentOptions([{ id: 'c1', name: 'Inker' }, { nope: 1 }]).map((o) => [o.id, o.label]),
+  [['', 'Artwork agent'], ['c1', 'Inker'], [NEW_AGENT, '+ New agent…']]);
+assert.equal(barModel({ status: 'working' }).working, true);
 
-// selection -> generative fill prompt + Generate, Remove BG, Ask AI
-const sel = barModel({ selection: { x: 10, y: 10, w: 50, h: 50 }, layer: { id: 'L1' } });
-assert.equal(sel.prompt, true);
-assert.deepEqual(labels(sel), ['Generate', 'Remove BG', 'Ask AI']);
-
-// layer only -> Select subject first, no prompt box
-const lay = barModel({ selection: null, layer: { id: 'L1' } });
-assert.equal(lay.prompt, false);
-assert.deepEqual(labels(lay), ['Select subject', 'Remove BG', 'Upscale', 'Style pass…', 'Ask AI']);
-
-// hidden while painting, or with nothing to act on
-assert.equal(barModel({ selection: { x: 0, y: 0, w: 1, h: 1 }, painting: true }).hidden, true);
-assert.equal(barModel({ selection: null, layer: null }).hidden, true);
-
-// position: centred under the anchor, clamped into the viewport, pinned spot wins
-const vp = { w: 800, h: 600 };
-assert.deepEqual(barPosition({ x: 300, y: 100, w: 200, h: 100 }, vp), { x: 220, y: 212 });
-assert.deepEqual(barPosition({ x: 0, y: 580, w: 10, h: 10 }, vp), { x: 0, y: 560 });
-assert.deepEqual(barPosition({ x: 300, y: 100, w: 200, h: 100 }, vp, { x: 5, y: 7 }), { x: 5, y: 7 });
-
-// controller: renders, drag persists, fire needs a prompt for genfill
-const saved = {}, runs = [], rendered = [];
+// controller: renders at the bottom, send posts `chat send` with doc + selection context, ✕ hides, pill restores
+const saved = {}, calls = [], rendered = [];
 const prefs = { get: (k) => saved[k], set: (k, v) => { saved[k] = v; } };
-const mk = () => createTaskbar({ prefs, run: (...a) => runs.push(a), render: (m, p) => rendered.push([m, p]) });
+const rpc = async (m, p) => { calls.push([m, p]); return p.action === 'agents' ? { agents: [{ id: 'c1', label: 'Inker' }] } : { ok: true }; };
+const mk = () => createTaskbar({ prefs, rpc, getDoc: () => 'D1', getTool: () => 'brush', render: (m) => rendered.push(m) });
 const tb = mk();
-const ctx = { selection: { x: 300, y: 100, w: 200, h: 100 }, layer: null, viewport: vp };
-tb.update(ctx);
-assert.deepEqual(rendered.at(-1)[1], { x: 220, y: 212 });
-assert.equal(tb.fire('genfill', '  '), false);
-assert.equal(tb.fire('genfill', ' gold gem '), true);
-assert.deepEqual(runs, [['genfill', 'gold gem']]);
-tb.drag({ x: 40, y: 50 });
-assert.deepEqual(saved.taskbar, { x: 40, y: 50 });
-assert.deepEqual(rendered.at(-1)[1], { x: 40, y: 50 });
-assert.deepEqual(mk().pinned, { x: 40, y: 50 }); // remembered by a fresh bar
-tb.update({ ...ctx, painting: true });
-assert.equal(rendered.at(-1)[0].hidden, true);
+await tb.loadAgents();
+assert.equal(rendered.at(-1).options.length, 3);
+assert.equal(rendered.at(-1).collapsed, false);
+tb.update({ selection: { x: 1, y: 2, w: 3, h: 4 }, layer: { id: 'L1' } });
+assert.equal((await tb.send('  ')).ok, false); // empty prompt posts nothing
+assert.equal(calls.length, 1);
+await tb.send(' add a gold rim ');
+assert.deepEqual(calls.at(-1), ['chat', { action: 'send', doc: 'D1', text: 'add a gold rim',
+  context: { selection: { x: 1, y: 2, w: 3, h: 4 }, layer: 'L1', tool: 'brush', hint: SELECTION_HINT } }]);
+tb.pick('c1'); tb.update({ selection: null });
+await tb.send('hi');
+assert.deepEqual(calls.at(-1)[1], { action: 'send', doc: 'D1', text: 'hi', conv_id: 'c1', context: { selection: null, layer: 'L1', tool: 'brush' } });
+tb.pick(NEW_AGENT); await tb.send('x');
+assert.equal(calls.at(-1)[1].new_agent, true);
+tb.update({ ai: 'working' });
+assert.equal(rendered.at(-1).working, true);
+await tb.stop();
+assert.equal(calls.at(-1)[1].action, 'stop');
+tb.update({ ai: 'idle' });
+tb.collapse(true);
+assert.equal(rendered.at(-1).collapsed, true);
+assert.deepEqual(saved.aibar, { collapsed: true, agent: NEW_AGENT });
+assert.equal(mk().state.collapsed, true); // remembered
+tb.collapse(false);
+assert.equal(rendered.at(-1).collapsed, false);
+assert.equal(taskbarSrc.includes('ai-taskbar'), false); // no floating bar
+assert.equal(/Remove BG|Generate/.test(taskbarSrc), false);
 // ---- actions ----
 const { createAiActions } = await import('../ui/js/ai/ai-actions.js');
 const { Selection, rectMask } = await import('../ui/js/engine/selection.js');
@@ -93,11 +94,6 @@ const asked = [];
 const ai2 = createAiActions({ ...actx, askPrompt: async (t) => (asked.push(t), 'gold gem') });
 await ai2.generativeFill({});
 assert.equal(asked.length, 1); assert.equal(posts.at(-1)[1].prompt, 'gold gem');
-// task bar: an event/object where a string is expected does not throw
-const tb2 = createTaskbar({ prefs, run: (...a) => runs.push(a), render() {} });
-assert.equal(tb2.fire('genfill', { prompt: 'gem' }), true);
-assert.deepEqual(runs.at(-1), ['genfill', 'gem']);
-assert.equal(tb2.fire('genfill', {}), false);
 selection.clear();
 ai.askAI({ note: 'hi' });
 assert.equal(chats[0].note, 'hi');

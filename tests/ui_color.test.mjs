@@ -79,4 +79,42 @@ const pts = strokePoints({ size: 10, hardness: 100, spacing: 50, opacity: 100 },
 assert.ok(pts.length > 10 && pts.every((p) => p.x > 0 && p.x < 120 && p.y >= 0 && p.y <= 32), 'preview stroke fits the canvas');
 assert.ok(strokePoints({ size: 10, hardness: 100, spacing: 25, opacity: 100 }).length > pts.length, 'tighter spacing = more stamps');
 
+// --- hex field, add swatch, brush size field (fake DOM) ---
+const { commitHex } = await import('../ui/js/panels/color.js');
+const { addSwatch } = await import('../ui/js/panels/swatches.js');
+const C_A = c.rgbToHex(255, 0, 0), C_B = c.rgbToHex(0, 255, 0);
+const hs = createStore({ foreground: C_A, background: c.rgbToHex(255, 255, 255), swatches: [C_A] });
+assert.ok(commitHex(hs, 'foreground', C_B.slice(0, 2) + C_B[3] + C_B[5]), '#rgb accepted');
+assert.equal(hs.get().foreground, C_B);
+assert.ok(commitHex(hs, 'foreground', '336699'), 'no # accepted');
+assert.equal(hs.get().foreground, '#336699');
+assert.ok(commitHex(hs, 'foreground', ' #ABCDEF '));
+assert.equal(hs.get().foreground, '#abcdef');
+assert.ok(!commitHex(hs, 'foreground', 'zzz'), 'invalid rejected');
+assert.equal(hs.get().foreground, '#abcdef', 'invalid keeps the old color');
+assert.ok(addSwatch(hs, '#abcdef'));
+assert.deepEqual(hs.get().swatches, ['#ff0000', '#abcdef']);
+assert.ok(!addSwatch(hs, '#ABCDEF'), 'duplicate is refused (panel toasts "Already in swatches")');
+assert.equal(hs.get().swatches.length, 2);
+
+const fakeEl = () => {
+  const on = {};
+  return {
+    on, children: [], style: {}, value: '', className: '', textContent: '',
+    setAttribute() {}, append(...k) { this.children.push(...k); },
+    addEventListener(t, f) { (on[t] ||= []).push(f); },
+    fire(t, e = {}) { (on[t] || []).forEach((f) => f({ preventDefault() {}, ...e })); },
+  };
+};
+globalThis.document = { getElementById: () => null, createElement: fakeEl, addEventListener() {}, removeEventListener() {} };
+const { scrubField } = await import('../ui/js/ui/scrub.js');
+const fbs = createStore({ size: 19, hardness: 100, spacing: 25, opacity: 100, flow: 100 });
+const sf = scrubField({ label: 'Size', value: 19, min: 1, max: 500, onInput: (v) => setBrushValue(fbs, 'size', v), onChange: (v) => setBrushValue(fbs, 'size', v) });
+sf.input.value = '64'; sf.input.fire('keydown', { key: 'Enter' });
+assert.equal(fbs.get().size, 64, 'Enter commits the brush size');
+sf.input.value = '120'; sf.input.fire('blur');
+assert.equal(fbs.get().size, 120, 'blur commits the brush size');
+sf.input.value = '9999'; sf.input.fire('keydown', { key: 'Enter' });
+assert.equal(fbs.get().size, 500, 'clamped to max');
+
 console.log('ui_color ok');

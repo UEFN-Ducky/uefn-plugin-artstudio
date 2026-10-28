@@ -37,6 +37,8 @@ export const STEPS = {
   'layout': [['layout']],
   // real-host audit: doc tabs, top bar background, dock tab rows, console errors, composite pixels at ?pts=x,y;x,y (doc space)
   real: [['real'], ['layout']],
+  clickall: [['clickall']], // every-control click-through; ?sect=menu:File|tools|dock|tabs|aibar|focus|shape|console
+  v4: [['v4']], // feedback audit; ?only=<1..8> runs one check (see v4.js)
   'freetransform': [['cmd', 'select.all'], ['key', 't', { ctrlKey: true }]],
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -81,7 +83,9 @@ export async function run(name, win) {
         }
         log.push('layers: ' + (eng ? eng.layers.length : 'no engine'));
         log.push('panelErrors: ' + (parent.panelErrors.join(' // ') || 'none'));
-      } else if (verb === 'cmd') win.artstudio.dispatch(a, { doc: win.artstudio.store.get().doc });
+      } else if (verb === 'clickall') await (await import('/harness/clickall.js')).clickall(win, log, new URLSearchParams(location.search).get('sect'));
+      else if (verb === 'v4') await (await import('/harness/v4.js')).v4(win, log, Number(new URLSearchParams(location.search).get('only')) || 0);
+      else if (verb === 'cmd') win.artstudio.dispatch(a, { doc: win.artstudio.store.get().doc });
       else if (verb === 'key') doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: a, bubbles: true, ...(b || {}) }));
       else if (verb === 'probe') {
         log.push('dock-buttons: ' + [...doc.querySelectorAll('[data-dock] button')].filter((b) => b.offsetParent).map((b) => (b.textContent || b.title || b.ariaLabel || '').trim().slice(0, 14)).join('|'));

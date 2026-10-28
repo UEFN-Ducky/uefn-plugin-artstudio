@@ -302,20 +302,21 @@ def register(api) -> None:
     def artstudio_layer(action: str, doc: str, layer: str = "", name: str = "", kind: str = "raster",
                         index: int | None = None, to: int | None = None, into: str = "",
                         visible: bool | None = None, opacity: float | None = None, blend: str | None = None,
-                        locked: bool | None = None, mask: str | None = None) -> dict:
+                        locked: bool | None = None, mask: str | None = None, by: dict | None = None,
+                        fill: float | None = None) -> dict:  # fill: sent by the Layers panel, no op field for it yet
         """Layers: action add|set|remove|move|merge; add returns the new layer id (use layer= for the rest)."""
         if action == "add":
             props = {k: v for k, v in dict(visible=visible, opacity=opacity, blend=blend, locked=locked).items() if v is not None}
-            return layer_add(api, doc, name, kind, index, layer, **props)
+            return layer_add(api, doc, name, kind, index, layer, by=by, **props)
         if action == "set":
-            return layer_set(api, doc, layer, name=name or None, visible=visible, opacity=opacity, blend=blend,
+            return layer_set(api, doc, layer, by=by, name=name or None, visible=visible, opacity=opacity, blend=blend,
                              locked=locked, mask=mask)
         if action == "remove":
-            return layer_remove(api, doc, layer)
+            return layer_remove(api, doc, layer, by=by)
         if action == "move":
-            return layer_move(api, doc, layer, to if to is not None else 0)
+            return layer_move(api, doc, layer, to if to is not None else 0, by=by)
         if action == "merge":
-            return layer_merge(api, doc, layer, into)
+            return layer_merge(api, doc, layer, into, by=by)
         return budget.err(f"unknown action {action!r}", ["add", "set", "remove", "move", "merge"])
 
     # Plain functions: the tool and the panel RPC of the same name call the very same code.

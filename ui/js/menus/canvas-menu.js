@@ -3,6 +3,8 @@
 import { openMenu } from "../ui/menu.js";
 import { popover } from "../ui/popover.js";
 import { scrubField } from "../ui/scrub.js";
+import { renderToolOptions, specFor } from "../panels/tool-options.js";
+import { getActive } from "../core/tools.js";
 
 let openM = null;
 
@@ -61,14 +63,36 @@ export function brushPopover(ctx, x, y) {
   });
 }
 
+const SEL_ACTIONS = ["Deselect", "Select Inverse", "Feather…", "Fill…", "Ask AI about this…"];
+
+// Right-click popover at the pointer: the active tool's options, plus selection actions when a selection exists.
+export function toolPopover(ctx, tool, x, y, selection = false) {
+  const anchor = { getBoundingClientRect: () => ({ left: x, right: x, top: y, bottom: y, width: 0, height: 0 }), contains: () => false };
+  return popover(anchor, (el, close) => {
+    el.className += " dk-brushpop dk-toolpop";
+    renderToolOptions(el, ctx, tool);
+    if (!selection) return;
+    const sep = document.createElement("div");
+    sep.className = "dk-toolpop__sep";
+    el.append(sep);
+    for (const it of canvasItems(ctx, { selection: true }).filter((i) => SEL_ACTIONS.includes(i.label))) {
+      const b = document.createElement("button");
+      b.className = "to__btn dk-toolpop__act";
+      b.textContent = it.label;
+      b.addEventListener("click", () => { close(); it.run(); });
+      el.append(b);
+    }
+  });
+}
+
 export function install(ctx, el = document.querySelector('[data-panel="canvas"]')) {
   if (!el) return () => {};
   const handler = (e) => {
     e.preventDefault();
     if (openM) openM.close();
-    const t = ctx.tools;
-    const tool = t?.getActive?.();
-    if (tool && t.isBrushTool?.(tool) && !hasSelection(ctx)) return brushPopover(ctx, e.clientX, e.clientY);
+    const tool = ctx.tools?.getActive?.() ?? getActive();
+    const sel = hasSelection(ctx);
+    if (sel || specFor(tool).length) return toolPopover(ctx, tool, e.clientX, e.clientY, sel);
     openM = openMenu(canvasItems(ctx), { x: e.clientX, y: e.clientY, onClose: () => { openM = null; } });
   };
   el.addEventListener("contextmenu", handler);

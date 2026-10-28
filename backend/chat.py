@@ -17,12 +17,6 @@ While you work the panel is in Watch-AI mode, so the user sees each op live.
 If the user answers in the thread, read the new reply and iterate from step 3.
 """
 
-SYSTEM_BRIEF = (
-    "You are the Art Studio assistant for one artwork. Call artstudio_catalog first to see "
-    "the drawing ops and their args, then draw with the artstudio_* tools on the doc named below."
-)
-
-
 def build_brief(note_id, extra=""):
     return f"{FIX_BRIEF}\nnote_id: {note_id}\n{extra}".strip()
 
@@ -56,26 +50,97 @@ def _text(m):
     return str(m.get("text") or m.get("content") or m.get("message") or "")
 
 
-def chat_send(api, doc, text, model="", attach=None):
-    """Send to the artwork's own chat, creating it on first use."""
+RULE = ("Use artstudio_* tools (ducky_get_tools pattern artstudio_), batch with artstudio_apply, "
+        "preview with output_dir = your attachments folder and look before continuing.")
+
+
+def _context(doc, ctx=None):
+    ctx = ctx if isinstance(ctx, dict) else {}
+    parts = [f"doc: {doc}"] + [f"{k}: {str(ctx[k])[:80]}" for k in ("layer", "tool", "selection", "hint") if ctx.get(k)]
+    return ("[Art Studio] " + "; ".join(parts) + "\n" + RULE)[:400]
+
+
+def _ai_stop(api, doc, resume=False):
+    try:
+        from . import live
+    except ImportError:  # tests import this file as a top-level module
+        import live
+    return live.ai_stop(api, doc, resume)
+
+
+def chat_agents(api, doc=""):
+    """Rows {id, label}: the doc's own chat first, then open Ducky agent chats (<= 20)."""
+    rows, seen = [], set()
+    rec = api.data.get(f"chat.{doc}") if doc else None
+    if rec and rec.get("conv_id"):
+        rows.append({"id": rec["conv_id"], "label": str(rec.get("name", ""))[:40]})
+        seen.add(rec["conv_id"])
+    res = api.call_tool("ducky_agent_list", {})
+    if isinstance(res, dict) and "agents" not in res and res.get("truncated") and res.get("path"):
+        # Big host replies are spilled to a file; the call only returns a preview + its path.
+        import json
+        try:
+            with open(res["path"], encoding="utf-8") as f:
+                res = json.load(f)
+        except (OSError, ValueError):
+            res = {}
+    items = res if isinstance(res, list) else (res.get("agents") or res.get("chats") or [])
+    # Real chats only (no group hubs), active ones first.
+    items = sorted((a for a in items if a.get("ducky") != "Group" and not a.get("is_self")),
+                   key=lambda a: not a.get("active"))
+    for a in items:
+        cid = a.get("id") or a.get("conv_id") or a.get("chat_id")
+        if cid and cid not in seen:
+            seen.add(cid)
+            rows.append({"id": cid, "label": str(a.get("label") or a.get("title") or a.get("name") or cid)[:40]})
+    return {"ok": True, "agents": rows[:20]}
+
+
+def chat_send(api, doc, text, model="", attach=None, conv_id="", new_agent=False, context=None):
+    """Send to a chosen agent, else the artwork's own chat (created on first use); new_agent spawns one."""
     key = f"chat.{doc}"
     rec = api.data.get(key)
-    first = not rec
-    if first:
-        name = f"Art Studio · {doc}"
+    msg = text
+    if attach:
+        msg += "\n\nAttached: " + ", ".join(str(a) for a in attach)
+    msg = f"{_context(doc, context)}\n\n{msg}"[:600]
+    name = f"Art Studio · {doc}"
+    first = False
+    if api.data.get(f"live.stop.{doc}"):
+        _ai_stop(api, doc, True)  # a new prompt lifts an earlier Stop
+    if new_agent:
+        made = api.call_tool("ducky_spawn_chat", {"ducky": "Developer", "title": name, "message": msg})
+        rec = {"name": name, "conv_id": made.get("conv_id") or made.get("chat_id") or made.get("id"),
+               "model": model, "doc": doc}
+        api.data.put(key, rec)
+        return {"ok": True, "conv_id": rec["conv_id"], "name": name, "model": model, "created": True}
+    if conv_id:
+        rec = {**(rec or {"name": name, "doc": doc}), "conv_id": conv_id}
+    elif not rec:
+        first = True
         made = api.call_tool("ducky_create_chat", {"title": name})
         rec = {"name": name, "conv_id": made.get("conv_id") or made.get("id"), "model": model, "doc": doc}
     elif model and model != rec.get("model"):
         rec = {**rec, "model": model}
     api.data.put(key, rec)
-    msg = text
-    if attach:
-        msg += "\n\nAttached: " + ", ".join(str(a) for a in attach)
-    if first:
-        hint = f"\nPreferred model: {rec['model']}" if rec.get("model") else ""
-        msg = f"{SYSTEM_BRIEF}\ndoc: {doc}{hint}\n\n{msg}"
-    api.call_tool("ducky_send_chat_message", {"conv_id": rec["conv_id"], "message": msg, "wait_for_reply": False})
+    sent = api.call_tool("ducky_send_chat_message", {"conv_id": rec["conv_id"], "message": msg, "wait_for_reply": False})
+    if isinstance(sent, dict) and (sent.get("ok") is False or sent.get("status") in ("not_sent", "error", "refused")):
+        # The host can refuse (e.g. a team lead messaging its own members): say so instead of a silent "ok".
+        return {"ok": False, "conv_id": rec["conv_id"],
+                "error": str(sent.get("reason") or sent.get("error") or "message not sent")[:200]}
     return {"ok": True, "conv_id": rec["conv_id"], "name": rec["name"], "model": rec.get("model", ""), "created": first}
+
+
+def chat_stop(api, doc, conv_id=""):
+    """Stop the AI's drawing and, if the host can, the agent's turn."""
+    _ai_stop(api, doc)
+    cid = conv_id or (api.data.get(f"chat.{doc}") or {}).get("conv_id")
+    if cid:
+        try:
+            api.call_tool("ducky_agent_stop", {"conv_id": cid})
+        except Exception:  # noqa: BLE001  host without the tool: the drawing stop above still holds
+            pass
+    return {"ok": True}
 
 
 def chat_read(api, doc, since=0):
@@ -104,20 +169,29 @@ def register(api):
     if reg:
         reg("artstudio_fix_loop", FIX_BRIEF)
 
-    def chat_action(action="send", doc="", text="", model="", attach=None, since=0, conv_id=""):
+    def chat_action(action="send", doc="", text="", model="", attach=None, since=0, conv_id="",
+                    new_agent=False, context=None):
         if action == "send":
-            return chat_send(api, doc, text, model, attach)
+            return chat_send(api, doc, text, model, attach, conv_id, new_agent, context)
+        if action == "agents":
+            return chat_agents(api, doc)
+        if action == "stop":
+            return chat_stop(api, doc, conv_id)
         if action == "read":
             return chat_read(api, doc, since)
         if action == "open":
             rec = api.data.get(f"chat.{doc}") or {}
             return open_chat(api, conv_id or rec.get("conv_id", ""))
-        return {"ok": False, "error": "action must be send, read or open"}
+        return {"ok": False, "error": "action must be send, read, open, agents or stop"}
 
     @api.tool()
     def artstudio_chat(action: str = "send", doc: str = "", text: str = "", model: str = "",
-                       attach: list | None = None, since: int = 0, conv_id: str = "") -> dict:
-        """Talk to the AI chat of one artwork: action send (text, model?), read (since) or open (full chat)."""
-        return chat_action(action, doc, text, model, attach, since, conv_id)
+                       attach: list | None = None, since: int = 0, conv_id: str = "",
+                       new_agent: bool = False, context: dict | None = None) -> dict:
+        """Talk to an artwork's AI agent: action send | read | open | agents | stop.
+
+        send: text, conv_id? (pick an agent), new_agent? (spawn one), context? (selection, layer, tool).
+        """
+        return chat_action(action, doc, text, model, attach, since, conv_id, new_agent, context)
 
     api.register_panel_rpc("chat", chat_action)

@@ -59,8 +59,9 @@ const host = mkEl();
 const w = createWatch(watchDeps({}, () => Promise.resolve({}), () => 'd9', { onFeed: () => redraw() }));
 const redraw = mountWatch(host, () => w);
 const buttons = host.querySelectorAll('button');
-assert.ok(buttons.some((b) => b.textContent === 'Stop AI'));
-assert.ok(buttons.every((b) => b.classList.s.has('dk-btn')));
+// Stop/Resume/Follow moved to the bottom AI bar: the dock copy hides them; any other button is kit-styled.
+assert.ok(buttons.filter((b) => /^(Follow|Following|Stop|Resume)\b/.test(b.textContent)).every((b) => b.hidden === true));
+assert.ok(buttons.filter((b) => !b.hidden).every((b) => b.classList.s.has('dk-btn')));
 w.onEvent({ rev: 1, kind: 'stroke', layer: 'l', by: { kind: 'ai', label: 'Ducky' } });
 assert.equal(host.children[1].children.at(-1).textContent, 'Ducky: stroke on l');
 console.log('ui_live_drive ok');

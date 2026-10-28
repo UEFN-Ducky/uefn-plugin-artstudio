@@ -48,11 +48,15 @@ export function icon(id, size = 20) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 }
 
-const CSS = `
-.tb{display:flex;flex-direction:column;align-items:center;gap:2px;font-family:var(--font-ui);color:var(--fg)}
+export const CSS = `
+.tb{display:flex;flex-direction:column;align-items:center;gap:2px;height:100%;box-sizing:border-box;padding:4px;overflow:hidden;background:var(--card);font-family:var(--font-ui);color:var(--fg)}
 .tb__sep{align-self:stretch;height:1px;margin:4px 0;background:var(--border)}
 .tb__group{display:flex;flex-direction:column;gap:2px}
-.tb .ps-tool{font-family:inherit;position:relative}
+.tb__grid{display:grid;grid-template-columns:repeat(2,28px);gap:2px}
+.tb__grid .ps-tool-group{display:contents}
+.tb__grid .ps-tool-separator{grid-column:1/-1;height:1px;margin:3px 0;background:var(--border)}
+.tb__bottom{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:4px}
+.tb .ps-tool{width:28px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;font-family:inherit;position:relative}
 .tb .ps-tool__more{position:absolute;right:2px;bottom:2px;width:0;height:0;border-left:5px solid transparent;border-bottom:5px solid var(--muted);pointer-events:none}
 .tb__fly{position:fixed;z-index:2000;min-width:200px;padding:4px;background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius,8px);display:flex;flex-direction:column;gap:2px;font-family:var(--font-ui);font-size:12px}
 .tb__item{display:flex;align-items:center;gap:8px;padding:6px 8px;background:none;color:var(--fg);border:1px solid transparent;border-radius:6px;cursor:pointer;text-align:left;font:inherit}
@@ -61,7 +65,7 @@ const CSS = `
 .tb__item span{flex:1}.tb__item kbd{color:var(--muted);font:inherit;font-size:11px}
 .tb__tick{width:16px;height:16px;color:var(--accent);visibility:hidden}
 .tb__item[aria-checked="true"] .tb__tick{visibility:visible}
-.tb__mini{display:flex;gap:2px}
+.tb__mini{display:flex;flex-wrap:wrap;justify-content:center;gap:2px}
 .tb__mini button{width:20px;height:20px;padding:0;display:flex;align-items:center;justify-content:center;background:none;border:none;color:var(--muted);cursor:pointer;border-radius:4px}
 .tb__mini button:hover{color:var(--fg);background:var(--bg)}
 .tb button:focus-visible,.tb__fly button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -89,14 +93,14 @@ export function mount(el, ctx) {
     if (par) picked[par] = act;
     const groups = toolsByGroup();
     const order = [...GROUPS, ...Object.keys(groups).filter((g) => !GROUPS.includes(g))].filter((g) => groups[g]?.length);
-    el.innerHTML = `<div class="ps-tools-panel tb" role="toolbar" aria-orientation="vertical" aria-label="Tools">${
+    el.innerHTML = `<div class="ps-tools-panel tb" role="toolbar" aria-orientation="vertical" aria-label="Tools"><div class="tb__grid">${
       order.map((g) => `<div class="ps-tool-group" role="group">${groups[g].map((t) => {
         const sid = shown(t);
         const on = isOn(t, act);
         const sc = shortcutOf(t.id);
         return `<button class="ps-tool${on ? ' active' : ''}" data-tool="${t.id}" aria-pressed="${on}" ${hasVariants(t.id) ? 'aria-haspopup="menu"' : ''} title="${variantName(sid)}${sc ? ` (${sc})` : ''}">${icon(sid)}${hasVariants(t.id) ? '<span class="ps-tool__more" aria-hidden="true"></span>' : ''}</button>`;
       }).join('')}</div>`).join('<div class="ps-tool-separator"></div>')
-    }<div class="ps-tool-separator"></div>
+    }</div><div class="tb__bottom">
       <div class="ps-colors">
         <button class="ps-colors__bg" data-color="background" title="Background color" aria-label="Background color"></button>
         <button class="ps-colors__fg" data-color="foreground" title="Foreground color" aria-label="Foreground color"></button>
@@ -105,7 +109,7 @@ export function mount(el, ctx) {
         <button data-cmd="color.swap" title="Swap colors (X)" aria-label="Swap colors">${icon('swap', 14)}</button>
         <button data-cmd="color.reset" title="Default colors (D)" aria-label="Default colors">${icon('reset', 14)}</button>
         <button data-cmd="fullscreen" title="Full screen" aria-label="Full screen">${icon('full', 14)}</button>
-      </div></div>`;
+      </div></div></div>`;
     paintColors(colors.get());
   }
 

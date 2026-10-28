@@ -302,6 +302,16 @@ export const COMMANDS = {
   save: alias("doc.save"),
   "doc.close": (ctx, a) => closeTabs(ctx, [a.doc || docOf(ctx)]),
   "doc.closeOthers": (ctx, a) => closeTabs(ctx, ctx.store.get().docs.filter((d) => d.id !== (a.doc || docOf(ctx))).map((d) => d.id)),
+  "doc.delete": async (ctx, a) => {
+    const id = a.doc || docOf(ctx);
+    if (!id) return;
+    const name = ctx.store.get().docs.find((d) => d.id === id)?.name || id;
+    const ok = await ctx.call("ui.confirm", { message: `Delete "${name}"? This removes the artwork for everyone sharing it.`, title: "Delete artwork", confirm: "Delete", danger: true }).then((r) => !!r?.confirmed).catch(() => false);
+    if (!ok) return;
+    const out = await ctx.rpc("doc", { action: "delete", doc: id });
+    if (out?.ok === false) return ctx.toast?.(out.error || "Could not delete");
+    await ctx.refreshDocs?.();
+  },
   "doc.duplicate": (ctx) => na(ctx, "Duplicate document"),
   "doc.revealVersions": (ctx) => (ctx.dock?.revealPanel ? ctx.dock.revealPanel("versions") : na(ctx, "Versions")),
   // panels / window

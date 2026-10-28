@@ -31,6 +31,19 @@ assert.deepEqual(calls.map((c) => c[1].by).sort(), ['ai', 'human']);
 calls.length = 0;
 await snapshot(call, 'd1');
 assert.deepEqual(calls, [['doc', { action: 'commit', doc: 'd1', msg: 'Snapshot' }]]);
+// Undo mine / Undo AI: one undo per author; null (disabled) when that author has no live op.
+{
+  const { undoBy, liveBy } = await import('../ui/js/panels/history.js');
+  const mixed = [ops[0], { rev: 2, kind: 'stroke', by: { kind: 'ai' }, args: {} }];
+  calls.length = 0;
+  await undoBy(call, 'd1', mixed, 'human');
+  await undoBy(call, 'd1', mixed, 'ai');
+  assert.deepEqual(calls, [['undo', { doc: 'd1', n: 1, by: 'human' }], ['undo', { doc: 'd1', n: 1, by: 'ai' }]]);
+  calls.length = 0;
+  assert.equal(undoBy(call, 'd1', [ops[0]], 'ai'), null);
+  assert.equal(liveBy([ops[0]], 'ai').length, 0);
+  assert.equal(calls.length, 0);
+}
 // ---- Layers panel ------------------------------------------------------------------------------------
 const { toggleVisible, setOpacity, moveLayer } = await import('../ui/js/panels/layers.js');
 const stack = [{ id: 'L1' }, { id: 'L2' }, { id: 'L3', visible: true }];

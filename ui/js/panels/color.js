@@ -1,7 +1,7 @@
 // Color panel (from color-panel.component.ts): picker square + hue strip drawn from pixels, HSB/RGB/Lab inputs.
 import { DEFAULT_COLOR } from '../core/models.js';
 import {
-  colorStore, hexToRgb, rgbToHex, rgbToHsb, hsbToRgb, rgbToLab, labToRgb,
+  colorStore, normalizeHex, hexToRgb, rgbToHex, rgbToHsb, hsbToRgb, rgbToLab, labToRgb,
 } from '../core/color.js';
 
 import { scrubField } from '../ui/scrub.js';
@@ -30,6 +30,13 @@ export function trackStops(hex, mode, i, hue) {
 /** Moving channel i of the target color writes through to the store (what the sliders call). */
 export function setChannel(cs, target, mode, i, v, hue) {
   cs.set({ [target]: withChannel(cs.get()[target], mode, i, v, hue) });
+}
+
+/** Typed hex (#rgb, #rrggbb or no #) sets the target color; false (store untouched) when invalid. */
+export function commitHex(cs, target, text) {
+  const hex = normalizeHex(text);
+  if (hex) cs.set({ [target]: hex });
+  return !!hex;
 }
 
 const SIZE = 160;
@@ -109,7 +116,7 @@ export function mount(el, ctx) {
       ${Object.keys(MODES).map((m) => `<button class="dk-pill" role="tab" data-mode="${m}">${m === 'lab' ? 'Lab' : m.toUpperCase()}</button>`).join('')}
     </nav>
     <div data-inputs></div>
-    <div class="cp__row"><label for="cp-hex">#</label><input class="dk-input" id="cp-hex" data-hex maxlength="6" spellcheck="false"></div>
+    <div class="cp__row"><label for="cp-hex">#</label><input class="dk-input" id="cp-hex" data-hex maxlength="7" spellcheck="false"></div>
     <button class="dk-btn" data-add>Add to swatches</button>
   </div>`;
 
@@ -236,6 +243,13 @@ export function mount(el, ctx) {
       setColor('#' + ev.target.value.toLowerCase());
     }
   });
+  // Enter / blur commit; invalid text snaps back to the current color.
+  const hexIn = $('[data-hex]');
+  const commit = () => {
+    if (!commitHex(cs, target, hexIn.value)) hexIn.value = cs.get()[target].slice(1);
+  };
+  hexIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { commit(); paint(cs.get()); } });
+  hexIn.addEventListener('blur', commit);
   ctx.bus.on('cmd', ({ name }) => {
     if (name === 'color.swap') swap();
     if (name === 'color.reset') reset();

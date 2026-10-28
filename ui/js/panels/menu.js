@@ -181,17 +181,7 @@ export function mount(el, ctx) {
     Filter: Object.entries(FILTERS).map(([g, ids]) => ({
       label: g, needsDoc: 1, sub: ids.map((id) => ({ label: title(id) + '…', run: go('filter.open', { kind: id }) })),
     })),
-    AI: [
-      { label: 'Generative Fill…', needsDoc: 1, run: go('ai.generativeFill') },
-      { label: 'Remove Background', needsDoc: 1, run: go('ai.removeBackground') },
-      { label: 'Select Subject', needsDoc: 1, run: go('ai.selectSubject') },
-      { label: 'Upscale', needsDoc: 1, run: go('ai.upscale') },
-      { label: 'Style Pass…', needsDoc: 1, run: () => ai('Style pass', RPC.aiStylePass, 'Describe the style', 'e.g. cartoon bold outlines') },
-      aiAsk('Ask AI…', 'ai.ask'),
-      { sep: 1 },
-      { label: 'UI Kit…', needsDoc: 1, run: () => ai('UI kit', RPC.aiUiKit, 'Describe the UI kit', 'e.g. fantasy stone buttons, panel and slider') },
-      { label: 'Icon Set…', needsDoc: 1, run: () => ai('Icon set', RPC.aiIconSet, 'Describe the icon set', 'e.g. 8 potion icons, hand painted') },
-    ],
+    // No AI menu: the AI prompt bar at the bottom drives the artwork's agent (person's feedback, v4).
     View: [
       { label: 'Zoom In', shortcut: 'Ctrl++', needsDoc: 1, run: go('view.zoomIn') },
       { label: 'Zoom Out', shortcut: 'Ctrl+-', needsDoc: 1, run: go('view.zoomOut') },

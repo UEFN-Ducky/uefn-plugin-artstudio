@@ -59,7 +59,38 @@ def test_open_chat_passes_conv_id():
     assert not chat.open_chat(api, "")["ok"]
 
 
+def test_agents_merges_doc_chat_and_list():
+    api = FakeApi()
+    api.store["chat.d1"] = {"name": "Art Studio · d1", "conv_id": "c1"}
+    base = api.call_tool
+    api.call_tool = lambda n, a=None: {"agents": [{"id": "c1", "title": "dup"}, {"id": "c2", "title": "Dev"}]} if n == "ducky_agent_list" else base(n, a)
+    rows = chat.chat_agents(api, "d1")["agents"]
+    assert [r["id"] for r in rows] == ["c1", "c2"] and rows[1]["label"] == "Dev"
+
+
+def test_send_conv_id_new_agent_and_stop():
+    api = FakeApi()
+    seen = []
+    api.call_tool = lambda n, a=None: seen.append((n, a)) or ({"conv_id": "n1"} if n == "ducky_spawn_chat" else {})
+    ctx = {"layer": "L1", "tool": "brush", "selection": [0, 0, 9, 9], "hint": "x" * 900}
+    r = chat.chat_send(api, "d1", "add lashes", conv_id="c7", context=ctx)
+    n, a = seen[0]
+    assert n == "ducky_send_chat_message" and a["conv_id"] == "c7" and a["wait_for_reply"] is False
+    assert len(a["message"]) <= 600 and r["conv_id"] == "c7" and api.store["chat.d1"]["conv_id"] == "c7"
+    seen.clear()
+    r = chat.chat_send(api, "d1", "hi", new_agent=True)
+    assert seen[0][0] == "ducky_spawn_chat" and seen[0][1]["ducky"] == "Developer"
+    assert r["conv_id"] == "n1" and api.store["chat.d1"]["conv_id"] == "n1" and len(seen[0][1]["message"]) <= 600
+    stops = []
+    chat._ai_stop = lambda api_, doc, resume=False: stops.append((doc, resume)) or {"ok": True}
+    seen.clear()
+    assert chat.chat_stop(api, "d1")["ok"] and stops == [("d1", False)]
+    assert seen == [("ducky_agent_stop", {"conv_id": "n1"})]
+
+
 if __name__ == "__main__":
+    test_agents_merges_doc_chat_and_list()
+    test_send_conv_id_new_agent_and_stop()
     test_open_chat_passes_conv_id()
     test_fake_agent_resolves_note_with_fix_op()
     test_first_send_creates_second_reuses()

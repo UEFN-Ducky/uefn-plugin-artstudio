@@ -56,11 +56,12 @@ const canvas = new El('div');
 installCanvas(ctx, canvas);
 let e = canvas.dispatch('contextmenu', { clientX: 5, clientY: 5 });
 assert.ok(e.prevented);
-assert.ok(menuLabels().includes('Generative fill…'));
-assert.ok(menuLabels().includes('Ask AI about this…'));
-document.body.find('dk-menu__item').find((r) => r.children[2].textContent === 'Generative fill…').dispatch('click');
-assert.deepEqual(ctx.sent[0], ['ai.generativeFill', undefined]);
-assert.equal(document.body.children.length, 0, 'menu closes after run');
+const acts = () => document.body.find('dk-toolpop__act').map((n) => n.textContent);
+assert.deepEqual(acts(), ['Deselect', 'Select Inverse', 'Feather…', 'Fill…', 'Ask AI about this…']);
+assert.ok(document.body.find('dk-scrub__label').map((n) => n.textContent).includes('Feather'), 'marquee shows feather');
+document.body.find('dk-toolpop__act').find((r) => r.textContent === 'Ask AI about this…').dispatch('click');
+assert.deepEqual(ctx.sent[0], ['ai.ask', { scope: 'selection' }]);
+assert.equal(document.body.children.length, 0, 'popover closes after run');
 
 // --- canvas: no selection -> edit/view menu ---
 assert.deepEqual(labels(canvasItems(mkCtx({}))).slice(0, 4), ['Undo', 'Redo', 'Paste', 'Select All']);
@@ -72,19 +73,50 @@ ctx = mkCtx({ engine: { selection: { active: true } }, tools: { getActive: () =>
 const c1 = new El('div');
 installCanvas(ctx, c1);
 c1.dispatch('contextmenu', { clientX: 5, clientY: 5 });
-assert.equal(document.body.find('dk-popover').length, 0);
-assert.ok(menuLabels().includes('Generative fill…'));
+assert.equal(document.body.find('dk-popover').length, 1);
+assert.equal(acts().length, 5, 'brush + selection: options and actions');
 closeAll();
 
-ctx = mkCtx({ engine: { hasSelection: () => false }, tools: { getActive: () => 'brush', isBrushTool: () => true }, brush: { size: 30, hardness: 50 } });
+const { createStore } = await import('../ui/js/core/store.js');
+const { toolOptions } = await import('../ui/js/core/tools.js');
+const scrubs = () => document.body.find('dk-scrub__label').map((n) => n.textContent);
+const brushStore = createStore({ size: 30, hardness: 50, opacity: 100, flow: 100, smoothing: true, preset: 'basic-round' });
+const colorSt = createStore({ foreground: HEX('000000'), background: HEX('ffffff') });
+ctx = mkCtx({ engine: { hasSelection: () => false }, tools: { getActive: () => 'pencil', isBrushTool: () => true }, brush: brushStore, color: colorSt });
 const c2 = new El('div');
 installCanvas(ctx, c2);
 c2.dispatch('contextmenu', { clientX: 5, clientY: 5 });
 assert.equal(document.body.find('dk-popover').length, 1);
 assert.equal(document.body.find('dk-menu').length, 0);
-assert.deepEqual(document.body.find('dk-scrub__label').map((n) => n.textContent), ['Size', 'Hardness']);
+assert.deepEqual(scrubs().slice(0, 4), ['Size', 'Hardness', 'Opacity', 'Flow']);
+assert.equal(document.body.find('dk-swatch').length, 1, 'pencil shows a color swatch');
+assert.equal(document.body.find('dk-toolpop__act').length, 0, 'no selection actions');
+const sizeInput = document.body.find('dk-scrub__input')[0];
+sizeInput.value = '8';
+sizeInput.dispatch('keydown', { key: 'Enter' });
+assert.equal(brushStore.get().size, 8, 'size writes the brush store');
 document.dispatch('keydown', { key: 'Escape' });
 assert.equal(document.body.find('dk-popover').length, 0);
+
+// wand: tolerance; Esc closes
+ctx = mkCtx({ engine: { hasSelection: () => false }, tools: { getActive: () => 'wand' }, brush: brushStore, color: colorSt });
+const c3 = new El('div');
+installCanvas(ctx, c3);
+c3.dispatch('contextmenu', { clientX: 5, clientY: 5 });
+assert.ok(scrubs().includes('Tolerance'));
+const tol = document.body.find('dk-scrub__input')[scrubs().indexOf('Tolerance')];
+tol.value = '77'; tol.dispatch('keydown', { key: 'Enter' });
+assert.equal(toolOptions.get().tolerance, 77, 'tolerance writes the tool-options store');
+document.dispatch('keydown', { key: 'Escape' });
+assert.equal(document.body.find('dk-popover').length, 0);
+
+// a tool with no options and no selection keeps the generic menu
+ctx = mkCtx({ engine: { hasSelection: () => false }, tools: { getActive: () => 'hand' } });
+const c4 = new El('div');
+installCanvas(ctx, c4);
+c4.dispatch('contextmenu', { clientX: 5, clientY: 5 });
+assert.ok(menuLabels().includes('Undo'));
+closeAll();
 
 // --- layer menu ---
 ctx = mkCtx();
@@ -97,7 +129,7 @@ assert.equal(bottom.find((i) => i.label === 'Merge Down').disabled, true);
 assert.equal(items.find((i) => i.label === 'Merge Down').disabled, false);
 
 // --- tab menu ---
-assert.deepEqual(labels(tabItems('a', ctx)), ['Close', 'Close Others', 'Duplicate', 'Reveal in Versions']);
+assert.deepEqual(labels(tabItems('a', ctx)), ['Close', 'Close Others', 'Duplicate', 'Reveal in Versions', 'Delete artwork…']);
 installTab(ctx);
 handlers['doctab.context']({ doc: 'a', x: 1, y: 1 });
 assert.ok(menuLabels().includes('Reveal in Versions'));
@@ -292,5 +324,27 @@ const selEngine = { selection: { mask: new Uint8Array(4), w: 2, h: 2 } };
 const selItems = canvasItems(mkCtx({ engine: selEngine }));
 assert.ok(labels(selItems).includes('Generative fill…'));
 assert.ok(selItems.filter((i) => !i.sep).every((i) => i.disabled === false), 'selection items enabled');
+
+// every tool the click-through found empty has at least one field in its right-click popover; hand and zoom keep "No options"
+const { specFor } = await import('../ui/js/panels/tool-options.js');
+for (const t of ['crop', 'eyedropper', 'heal', 'healing-brush', 'pen', 'freeform-pen', 'shape', 'rectangle', 'rounded-rectangle', 'ellipse', 'polygon', 'line', 'highlight']) {
+  assert.ok(specFor(t).length >= 1, t + ' has options');
+}
+assert.ok(specFor('rounded-rectangle').some((s) => s.k === 'cornerRadius'), 'rounded rectangle has a radius');
+assert.ok(!specFor('rectangle').some((s) => s.k === 'cornerRadius'), 'plain rectangle has no radius');
+assert.equal(specFor('hand').length, 0);
+assert.equal(specFor('zoom').filter((s) => s.k === 'zoomMode').length, 1);
+
+// clone drag with no source toasts; with an Alt-click source it paints
+const { createCloneTool } = await import('../ui/js/tools/clone.js');
+const cloneToasts = [], cloneEmits = [];
+const clone = createCloneTool({ toast: (m) => cloneToasts.push(m), engine: {}, getOpts: () => ({ layer: 'L1' }), emit: (...a) => cloneEmits.push(a) });
+clone.pointerDown({ x: 5, y: 5 }, {}); clone.pointerMove({ x: 6, y: 6 }); clone.pointerUp();
+assert.deepEqual(cloneToasts, ['Alt-click to set the clone source first']);
+assert.equal(cloneEmits.length, 0);
+clone.pointerDown({ x: 1, y: 1 }, { altKey: true });
+clone.pointerDown({ x: 5, y: 5 }, {}); clone.pointerMove({ x: 6, y: 6 }); clone.pointerUp();
+assert.equal(cloneToasts.length, 1, 'no toast once a source is set');
+assert.equal(cloneEmits[0][0], 'clone');
 
 console.log('ui_menus ok');

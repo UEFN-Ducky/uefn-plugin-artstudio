@@ -82,7 +82,12 @@ export function optsFor(id, t = {}, c = {}, mods = {}) {
     type: t.gradientType || 'linear', zoomMode: t.zoomMode,
     fontFamily: t.fontFamily, fontSize: t.fontSize, textAlign: t.textAlign,
     constrain: !!mods.shift, fromCenter: !!mods.alt,
-    ...(parent === 'eyedropper' ? { size: 1, sampleAll: true } : {}), // a point sample of the composite, not the brush size
+    ...(parent === 'eyedropper' ? { size: { '3x3': 3, '5x5': 5 }[t.sampleSize] || 1, sampleAll: t.sampleScope !== 'current-layer' } : {}), // a point / N x N sample, not the brush size
+    ...(parent === 'crop' ? { ratio: t.cropRatio && t.cropRatio !== 'free' ? t.cropRatio : null, deletePixels: t.deleteCropped !== false } : {}),
+    ...(parent === 'heal' ? { ...(t.healSize != null ? { size: t.healSize } : {}), ...(t.healHardness != null ? { hardness: t.healHardness > 1 ? t.healHardness / 100 : t.healHardness } : {}), healMode: t.healMode } : {}),
+    ...(parent === 'pen' ? { mode: t.penMode === 'path' ? 'selection' : 'shape', fill: t.penFill ? fg : null, stroke: t.penStroke ?? fg, width: t.strokeWidth ?? 2 } : {}),
+    ...(parent === 'shape' ? { fill: t.shapeFill === false ? null : fg, stroke: t.shapeStroke ?? fg, width: t.strokeWidth ?? 2, radius: t.cornerRadius } : {}),
+    ...(parent === 'highlight' ? { highlightMode: t.highlightMode } : {}),
     ...(parent === 'text' ? { size: t.fontSize, font: t.fontFamily, align: t.textAlign } : {}), // type size is the font size, not the brush size
   };
 }

@@ -6,6 +6,7 @@ import { toolOptions, setOption, getActive, getTool, onChange, isBrushTool, isSe
 import { icon } from './toolbar.js';
 import { scrubField } from '../ui/scrub.js';
 import { popover } from '../ui/popover.js';
+import { swatchButton } from '../ui/swatchbtn.js';
 
 const BLENDS = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn',
   'hard-light', 'soft-light', 'difference', 'exclusion'];
@@ -56,6 +57,15 @@ export function specFor(id) {
   if (parent === 'text') {
     out.push(select('fontFamily', 'Font', FONTS), num('fontSize', 'Size', 1, 500, 'pt'), seg('textAlign', 'Align', ['left', 'center', 'right']), { kind: 'color', k: 'foreground', text: 'Color' });
   }
+  if (parent === 'crop') out.push(select('cropRatio', 'Ratio', ['free', '1:1', '16:9', '4:3']), check('deleteCropped', 'Delete cropped pixels'));
+  if (parent === 'eyedropper') out.push(select('sampleSize', 'Sample size', ['point', '3x3', '5x5']), select('sampleScope', 'Sample', ['current-layer', 'all-layers']));
+  if (parent === 'heal') out.push(num('size', 'Size', 1, 500, 'px'), num('hardness', 'Hardness', 0, 100, '%'), select('healMode', 'Mode', ['content-aware', 'proximity-match', 'create-texture']));
+  if (parent === 'pen') out.push(seg('penMode', 'Mode', ['path', 'shape']), check('penFill', 'Fill'), { kind: 'color', k: 'foreground', text: 'Stroke' });
+  if (parent === 'shape') {
+    out.push(check('shapeFill', 'Fill'), { kind: 'color', k: 'foreground', text: 'Stroke' }, num('strokeWidth', 'Width', 0, 100, 'px'));
+    if (id === 'rounded-rectangle') out.push(num('cornerRadius', 'Radius', 0, 500, 'px'));
+  }
+  if (parent === 'highlight') out.push(seg('highlightMode', 'Mode', ['rect', 'lasso', 'brush']));
   return out;
 }
 
@@ -66,6 +76,63 @@ export function writeOption(brush, k, value) {
     const [lo, hi] = brushRange(k);
     brush.set({ [k]: typeof value === 'number' ? Math.max(lo, Math.min(hi, value)) : value });
   } else setOption(k, value);
+}
+
+// Compact option block for one tool (right-click popover). Builds DOM, writes the same stores the engine reads.
+export function renderToolOptions(el, ctx, toolId = getActive()) {
+  if (typeof ctx.brush?.get !== 'function') ctx.brush = createStore({ ...DEFAULT_BRUSH, preset: 'basic-round', ...ctx.brush });
+  const brush = ctx.brush;
+  const read = (k) => (k in DEFAULT_BRUSH || k === 'preset' ? brush.get()[k] : toolOptions.get()[k]);
+  const mk = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const wrap = mk('div', 'to to--pop');
+  wrap.setAttribute('role', 'group');
+  wrap.setAttribute('aria-label', `${variantName(toolId)} options`);
+  const custom = ctx.toolOptionsFor?.[toolId] || ctx.toolOptionsFor?.[getTool(toolId)?.parent];
+  let specs = custom ? [] : specFor(toolId).filter((s) => s.k !== 'blendMode' && s.kind !== 'btn');
+  if (isBrushTool(toolId) && !custom) specs.push({ kind: 'color', k: 'foreground', text: 'Color' });
+  if (!specs.length) wrap.append(mk('span', 'to__none', 'No options'));
+  for (const s of specs) {
+    if (s.kind === 'num') {
+      wrap.append(scrubField({
+        label: s.text, value: Number(read(s.k)) || 0, min: s.min, max: s.max, unit: s.unit,
+        onInput: (v) => writeOption(brush, s.k, v), onChange: (v) => writeOption(brush, s.k, v),
+      }).el);
+      continue;
+    }
+    const row = mk('div', 'to__opt');
+    if (s.kind === 'check') {
+      const i = mk('input'); i.type = 'checkbox'; i.checked = !!read(s.k);
+      i.addEventListener('change', () => writeOption(brush, s.k, i.checked));
+      row.append(i, mk('span', '', s.text));
+    } else if (s.kind === 'select' || s.kind === 'picker') {
+      const opts = s.kind === 'picker' ? BRUSH_PRESETS.map((p) => [p.id, p.name]) : s.opts.map((o) => [o, label(o)]);
+      const k = s.kind === 'picker' ? 'preset' : s.k;
+      const sel = mk('select', 'dk-input');
+      for (const [v, t] of opts) { const o = mk('option', '', t); o.value = v; sel.append(o); }
+      sel.value = read(k) ?? s.opts?.[0];
+      sel.addEventListener('change', () => (k === 'preset' ? brush.set({ preset: sel.value }) : writeOption(brush, k, sel.value)));
+      row.append(mk('span', '', s.kind === 'picker' ? 'Preset' : s.text), sel);
+    } else if (s.kind === 'seg') {
+      row.className = 'to__seg';
+      for (const v of s.vals) {
+        const b = mk('button', '', label(v));
+        b.dataset.seg = s.k; b.setAttribute('aria-pressed', String(read(s.k) === v));
+        b.addEventListener('click', () => { writeOption(brush, s.k, v); row.children.forEach((c) => c.setAttribute('aria-pressed', String(c === b))); });
+        row.append(b);
+      }
+    } else if (s.kind === 'color') {
+      const sw = swatchButton({ value: ctx.color?.get?.()[s.k] || '#000000', ctx, onPick: (v) => ctx.color?.set?.({ [s.k]: v }) });
+      row.append(mk('span', '', s.text), sw.el);
+    }
+    wrap.append(row);
+  }
+  el.append(wrap);
+  return wrap;
 }
 
 function html(s, ctx) {

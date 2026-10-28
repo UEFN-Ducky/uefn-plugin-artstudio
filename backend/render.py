@@ -191,8 +191,9 @@ def preview(api, doc_id: str, region=None, max_px: int = 512, since_rev: int | N
         os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{doc_id}_{doc['rev']}_{box[0]}-{box[1]}-{box[2]}-{box[3]}.png")
     img.save(path)
+    # Small reply (AI cost rule): the path alone shows the picture on the chat card, so no chat_view copy of it.
     return {"ok": True, "path": path, "w": img.width, "h": img.height, "rev": doc["rev"],
-            "region": [box[0], box[1], box[2] - box[0], box[3] - box[1]], "chat_view": {"media": [path]}}
+            "region": [box[0], box[1], box[2] - box[0], box[3] - box[1]]}
 
 
 def register(api) -> None:

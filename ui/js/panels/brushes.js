@@ -75,6 +75,8 @@ export function mount(el, ctx) {
   FIELDS.forEach(([k, label, lo, hi, unit]) => {
     const f = scrubField({ label, value: bs.get()[k] ?? lo, min: lo, max: hi, unit, onInput: (v) => setBrushValue(bs, k, v), onChange: (v) => setBrushValue(bs, k, v) });
     fields[k] = f;
+    // A bare 'change' (value set without Enter/blur) commits too.
+    f.input.addEventListener('change', () => { const n = parseFloat(f.input.value); if (Number.isFinite(n)) f.set(n); });
     $('[data-fields]').append(f.el);
   });
 

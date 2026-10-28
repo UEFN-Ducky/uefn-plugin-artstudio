@@ -10,7 +10,7 @@ import { createWatch } from "./live/watch.js";
 
 registerHighlight(tools); // after the core tools, so its shortcut guard sees them
 
-import { PANELS, mountPanels as mountAll, mountDock, shellRun, wireModules, setFeedbackDeps, loadPanel } from "./core/dock.js";
+import { PANELS, mountPanels as mountAll, mountDock, openDocs, pickDoc, shellRun, wireModules, setFeedbackDeps, loadPanel } from "./core/dock.js";
 import * as shortcuts from "./core/shortcuts.js";
 import * as commands from "./menus/commands.js";
 import * as canvasMenu from "./menus/canvas-menu.js";
@@ -31,7 +31,7 @@ const prefs = { // dock layout survives reloads
   set: (k, v) => { try { localStorage.setItem(`artstudio.${k}`, JSON.stringify(v)); } catch { /* storage off */ } },
 };
 
-const store = createStore({ docs: [], doc: null, status: "loading", error: "", visible: true, zoom: 1, live: 0, ai: "idle", closed: [] });
+const store = createStore({ docs: [], doc: null, status: "loading", error: "", visible: true, zoom: 1, live: 0, ai: "idle", closed: prefs.get("closedDocs") || [] });
 const handlers = new Map();
 const bus = {
   on(name, fn) { (handlers.get(name) || handlers.set(name, new Set()).get(name)).add(fn); },
@@ -139,8 +139,8 @@ async function loadDocs() {
     const out = await rpc("doc", { action: "list", limit: 200 });
     if (out?.ok === false) throw new Error(out.error || out.err || "doc list failed");
     const docs = (out?.docs || out?.items || []).filter((d) => d && d.id);
-    const cur = store.get().doc;
-    store.set({ docs, status: "ready", error: "", doc: docs.some((d) => d.id === cur) ? cur : docs[0]?.id || null });
+    const { doc: cur, closed } = store.get();
+    store.set({ docs, status: "ready", error: "", doc: pickDoc(docs, closed, cur) });
   } catch (err) {
     store.set({ status: "error", error: err.message });
   }
@@ -149,7 +149,7 @@ async function loadDocs() {
 // One pill per open doc: name, dirty dot, close ×. Right-click emits doctab.context for the menu seat.
 function renderTabs() {
   const { docs, doc, closed } = store.get();
-  $("[data-doc-tabs]").innerHTML = docs.filter((d) => !closed.includes(d.id)).map((d) =>
+  $("[data-doc-tabs]").innerHTML = openDocs(docs, closed).map((d) =>
     `<button class="studio__doctab" role="tab" data-doc-tab="${esc(d.id)}" aria-selected="${d.id === doc}">${esc(d.name || d.id)}` +
     `${d.dirty ? '<span class="studio__doctab-dot" title="Unsaved changes"></span>' : ""}` +
     `<span class="studio__doctab-close" data-doc-close="${esc(d.id)}" role="button" aria-label="Close ${esc(d.name || d.id)}" title="Close">×</span></button>`).join("");
@@ -157,9 +157,21 @@ function renderTabs() {
 
 function closeTab(id) {
   const { docs, doc, closed } = store.get();
-  const left = docs.filter((d) => d.id !== id && !closed.includes(d.id));
-  store.set({ closed: [...closed, id], doc: doc === id ? left[0]?.id || null : doc });
+  const nextClosed = [...closed, id];
+  store.set({ closed: nextClosed, doc: doc === id ? pickDoc(docs, nextClosed, null) : doc });
 }
+
+// "Delete artwork…" from the tab menu: confirm, delete on the backend, drop the tab.
+bus.on("cmd", async ({ name, doc: id }) => {
+  if (name !== "doc.delete" || !id) return;
+  const d = store.get().docs.find((x) => x.id === id);
+  const ok = await dialog({ title: "Delete artwork", ok: "Delete", body: (el) => { el.textContent = `Delete “${d?.name || id}” permanently? This can't be undone.`; } });
+  if (!ok) return;
+  const out = await rpc("doc", { action: "delete", id }).catch((e) => ({ ok: false, error: e.message }));
+  if (out?.ok === false) return toast(out.error || "Delete failed");
+  closeTab(id);
+  loadDocs();
+});
 
 // New/Open go through the dialogs the document seat registers (ctx.dialogs.newDoc / .open); without them, defaults.
 ctx.dialogs = {};
@@ -214,13 +226,6 @@ document.addEventListener("click", (ev) => {
   const tab = ev.target.closest("[data-doc-tab]")?.dataset.docTab;
   if (close) return closeTab(close);
   if (tab) store.set({ doc: tab });
-  if (a === "watch") {
-    const w = $('[data-panel="watch"]');
-    const shown = !w.closest("[data-tab-body]").hidden && !w.hidden;
-    dock.revealPanel("watch");
-    w.hidden = shown ? true : false; // first click reveals the Watch AI tab, next ones toggle the card
-    document.querySelector('[data-act="watch"]').setAttribute("aria-pressed", String(!w.hidden));
-  }
   if (a === "new") newDoc();
   if (a === "open") openImage();
   if (a === "retry") { store.set({ status: "loading" }); loadDocs(); }
@@ -232,9 +237,9 @@ document.addEventListener("contextmenu", (ev) => {
 ctx.refreshDocs = loadDocs;
 setFeedbackDeps(ctx, { chat: chatDrawer.chat, call });
 
-const dock = ctx.dock = mountDock($("[data-dock]"), { prefs });
+const dock = ctx.dock = mountDock($("[data-dock]"), { prefs, bus });
 mountStatusbar($("[data-status]"), ctx);
-store.subscribe(() => { renderState(); renderTabs(); });
+store.subscribe((s) => { renderState(); renderTabs(); prefs.set("closedDocs", s.closed); });
 store.subscribe((s) => { if (s.doc !== ctx.lastDoc) { ctx.lastDoc = s.doc; bus.emit("doc", { doc: s.doc }); } });
 
 mountPanels().then(() => wireModules(ctx, { shortcuts, commands, canvasMenu, tabMenu, colorPicker, newDoc: newDocDialog, taskbar, aiActions, feedback, chat: chatDrawer, dialog }, {

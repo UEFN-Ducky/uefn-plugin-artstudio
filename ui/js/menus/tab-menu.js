@@ -10,6 +10,7 @@ export function tabItems(docId, ctx) {
     { label: "Duplicate", run: go("doc.duplicate") },
     { sep: true },
     { label: "Reveal in Versions", run: go("doc.revealVersions") },
+    { label: "Delete artwork…", run: go("doc.delete") },
   ];
 }
 

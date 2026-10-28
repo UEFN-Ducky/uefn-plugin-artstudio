@@ -6,7 +6,7 @@ const clampW = (w) => Math.max(DOCK_MIN, Math.min(DOCK_MAX, Math.round(Number(w)
 
 // mount point -> module that exports mount(el, ctx) (or open for dialog-only modules).
 export const PANELS = {
-  menu: "./panels/menu.js", options: "./panels/tool-options.js", toolbar: "./panels/toolbar.js",
+  menu: "./panels/menu.js", toolbar: "./panels/toolbar.js",
   canvas: "./engine/engine.js", color: "./panels/color.js", swatches: "./panels/swatches.js",
   brushes: "./panels/brushes.js", layers: "./panels/layers.js", history: "./panels/history.js",
   navigator: "./panels/navigator.js", properties: "./panels/properties.js", adjustments: "./panels/adjustments.js",
@@ -140,6 +140,10 @@ export async function mountPanels(panels, { find, importer, ctx, toast }) {
   return failed;
 }
 
+// Doc tabs: docs minus the closed ones (prefs closedDocs); a closed doc stays closed across polls and reloads.
+export const openDocs = (docs, closed) => docs.filter((d) => !closed.includes(d.id));
+export const pickDoc = (docs, closed, cur) => (openDocs(docs, closed).some((d) => d.id === cur) ? cur : openDocs(docs, closed)[0]?.id || null);
+
 // Group sizing. Expanded groups share the dock height by weight (Layers 3, others 1); collapsed ones are a tab strip.
 export const STRIP = 36, GAP = 8, LAYERS_MIN = 240, MIN_WEIGHT = 0.25;
 export const defaultWeight = (id) => (id === "layers" ? 3 : 1);
@@ -160,7 +164,8 @@ export function resizeWeights(wa, wb, dy, pxPerWeight) {
 }
 
 // root: the dock element ([data-dock]); groups are [data-dock-group="id"] with [data-tab="name"] buttons and [data-tab-body="name"] bodies.
-export function mountDock(root, { prefs } = {}) {
+export function mountDock(root, { prefs, bus } = {}) {
+  let fly = null; // collapsed dock: { id, tab, top, right } of the panel shown as a flyout card left of the strip
   const groups = [...root.querySelectorAll("[data-dock-group]")];
   const saved = prefs?.get?.("dock") || {};
   const state = { collapsed: !!saved.collapsed, width: clampW(saved.width), groups: { ...(saved.groups || {}) } };
@@ -184,7 +189,13 @@ export function mountDock(root, { prefs } = {}) {
       g.classList.toggle("is-collapsed", !!gs.collapsed);
       g.style.flex = gs.collapsed ? "none" : `${gs.weight || defaultWeight(id)} 1 0`;
       tabs.forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === tab)));
-      g.querySelectorAll("[data-tab-body]").forEach((b) => { b.hidden = b.dataset.tabBody !== tab; });
+      g.querySelectorAll("[data-tab-body]").forEach((b) => {
+        const isFly = state.collapsed && fly?.id === id && fly.tab === b.dataset.tabBody;
+        b.hidden = state.collapsed ? !isFly : b.dataset.tabBody !== tab;
+        b.classList.toggle?.("is-fly", isFly);
+        if (b.style) { b.style.top = isFly ? `${fly.top}px` : ""; b.style.right = isFly ? `${fly.right}px` : ""; }
+      });
+      tabs.forEach((t) => t.setAttribute("aria-selected", String(state.collapsed ? fly?.id === id && fly.tab === t.dataset.tab : t.dataset.tab === tab)));
     }
   };
   const groupEl = (id) => groups.find((g) => g.dataset.dockGroup === id);
@@ -193,7 +204,22 @@ export function mountDock(root, { prefs } = {}) {
     state,
     showTab(id, tab) { (state.groups[id] ||= {}).tab = tab; state.groups[id].collapsed = false; state.last = id; apply(); save(); },
     toggleGroup(id) { (state.groups[id] ||= {}).collapsed = !state.groups[id]?.collapsed; apply(); save(); },
-    toggleDock(force) { state.collapsed = force ?? !state.collapsed; apply(); save(); },
+    toggleDock(force) { state.collapsed = force ?? !state.collapsed; fly = null; apply(); save(); },
+    // Collapsed dock: open the panel behind an icon as a flyout; the same icon again closes it, only one is open.
+    toggleFly(id, tab, anchor) {
+      if (fly?.id === id && fly.tab === tab) fly = null;
+      else {
+        const r = anchor?.getBoundingClientRect?.(), rr = root.getBoundingClientRect?.();
+        const win = root.ownerDocument?.defaultView, vh = win?.innerHeight || 900, vw = win?.innerWidth || 1200;
+        (state.groups[id] ||= {}).tab = tab;
+        fly = { id, tab, top: Math.max(8, Math.min(r?.top ?? 8, vh - 320)), right: Math.round(vw - (rr?.left ?? vw) + 8) };
+      }
+      apply();
+    },
+    closeFly() { if (fly) { fly = null; apply(); } },
+    get flyout() { return fly && { ...fly }; },
+    handleKey(ev) { if (ev.key === "Escape" && fly) { api.closeFly(); return true; } return false; },
+    handleOutside(target) { if (fly && !target?.closest?.("[data-tab],.is-fly")) api.closeFly(); },
     setWidth(w) { state.width = clampW(w); apply(); save(); },
     // Reveal the tab holding a panel mount, e.g. revealPanel("watch").
     revealPanel(panel) {
@@ -207,10 +233,16 @@ export function mountDock(root, { prefs } = {}) {
     const t = ev.target.closest?.("[data-tab]");
     const c = ev.target.closest?.("[data-group-toggle]");
     const d = ev.target.closest?.("[data-dock-toggle]");
-    if (t) api.showTab(t.closest("[data-dock-group]").dataset.dockGroup, t.dataset.tab);
+    const m = ev.target.closest?.("[data-group-menu]");
+    if (t && state.collapsed) api.toggleFly(t.closest("[data-dock-group]").dataset.dockGroup, t.dataset.tab, t);
+    else if (t) api.showTab(t.closest("[data-dock-group]").dataset.dockGroup, t.dataset.tab);
     else if (c) api.toggleGroup(c.closest("[data-dock-group]").dataset.dockGroup);
     else if (d) api.toggleDock();
+    else if (m) { const r = m.getBoundingClientRect?.(); bus?.emit?.("panel.menu", { group: m.dataset.groupMenu, x: r?.left ?? ev.clientX, y: r?.bottom ?? ev.clientY }); }
   });
+  const odoc = root.ownerDocument;
+  odoc?.addEventListener?.("keydown", (ev) => api.handleKey(ev));
+  odoc?.addEventListener?.("pointerdown", (ev) => api.handleOutside(ev.target));
 
   // Drag the [data-dock-resize] handle: the dock sits on the right, so dragging left widens it.
   const handle = root.querySelector("[data-dock-resize]");

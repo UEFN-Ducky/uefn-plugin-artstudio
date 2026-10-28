@@ -1,86 +1,122 @@
-// Contextual task bar: a floating pill under the selection (or the active layer). Hidden while painting.
-import { AI_ACTIONS, promptText } from './ai-actions.js';
+// AI prompt bar: fixed at the bottom of the stage. [agent ▾] [prompt] [Send] [status / Stop].
+// The picked Ducky agent drives the program; ✕ folds the bar into a "✦ AI" pill at the bottom right.
+import { promptText } from './ai-actions.js';
 
-const PREF = 'taskbar';
-const GAP = 12, BAR_H = 40;
+const PREF = 'aibar';
+export const NEW_AGENT = '__new';
+export const SELECTION_HINT = 'edit only inside the selection';
 
-// Pure: which buttons to show. selection = bounds {x,y,w,h} | null, layer = layer | null.
-export function barModel({ selection, layer, painting }) {
-  if (painting || (!selection && !layer)) return { hidden: true, buttons: [] };
-  const ids = selection ? ['genfill', 'removebg', 'ask'] : ['subject', 'removebg', 'upscale', 'style', 'ask'];
+// Pure: picker entries. '' = the artwork's own agent (default), then known Ducky chats, then "+ New agent…".
+export function agentOptions(agents = []) {
+  const known = (agents || []).filter((a) => a && a.id).map((a) => ({ id: String(a.id), label: a.label || a.name || String(a.id) }));
+  return [{ id: '', label: 'Artwork agent' }, ...known, { id: NEW_AGENT, label: '+ New agent…' }];
+}
+
+// Pure: the `chat send` params. context = selection box, active layer, tool (+ hint when a selection exists).
+export function sendParams({ doc, text, agent, selection, layer, tool }) {
+  const context = { selection: selection || null, layer: layer || null, tool: tool || null };
+  if (selection) context.hint = SELECTION_HINT;
+  const p = { action: 'send', doc, text, context };
+  if (agent === NEW_AGENT) p.new_agent = true;
+  else if (agent) p.conv_id = agent;
+  return p;
+}
+
+// Pure: what the DOM draws.
+export function barModel({ collapsed, agent, agents, status }) {
   return {
-    hidden: false,
-    mode: selection ? 'selection' : 'layer',
-    prompt: !!selection,
-    buttons: ids.map((id) => ({ id, label: AI_ACTIONS[id].label })),
+    collapsed: !!collapsed,
+    agent: agent || '',
+    options: agentOptions(agents),
+    working: status === 'working',
+    status: status === 'working' ? 'working' : 'idle',
   };
 }
 
-// Pure: screen position (px) under the anchor box, clamped into the viewport. A dragged spot wins.
-export function barPosition(anchor, viewport, pinned, size = { w: 360, h: BAR_H }) {
-  const clamp = (v, hi) => Math.max(0, Math.min(Math.max(0, hi), v));
-  const p = pinned || { x: anchor.x + anchor.w / 2 - size.w / 2, y: anchor.y + anchor.h + GAP };
-  return { x: clamp(p.x, viewport.w - size.w), y: clamp(p.y, viewport.h - size.h) };
-}
-
-// Controller: update(ctx) re-renders via render(model, pos); drag(dx,dy) pins and persists the position.
-export function createTaskbar({ render, prefs, run }) {
-  let pinned = prefs?.get(PREF) || null, last = null;
+// Controller. rpc, getDoc(), getTool() come from the shell; prefs persists collapsed + agent.
+// update(ctx) is the shell's refresh: ctx.selection (box|null), ctx.layer, ctx.ai ('working'|'idle') are remembered.
+export function createTaskbar({ render, prefs, rpc, getDoc = () => '', getTool = () => '' }) {
+  const saved = prefs?.get(PREF) || {};
+  const s = { collapsed: !!saved.collapsed, agent: saved.agent || '', agents: [], ctx: {}, sending: false };
+  const save = () => prefs?.set(PREF, { collapsed: s.collapsed, agent: s.agent });
+  const model = () => barModel({ ...s, status: s.sending || s.ctx.ai === 'working' ? 'working' : 'idle' });
+  const draw = () => { const m = model(); render(m, api); return m; };
   const api = {
-    get pinned() { return pinned; },
-    update(ctx) {
-      last = ctx;
-      const model = barModel(ctx);
-      const anchor = ctx.selection ? ctx.selectionScreen || ctx.selection : ctx.layerScreen || { x: 0, y: 0, w: 0, h: 0 };
-      render(model, model.hidden ? null : barPosition(anchor, ctx.viewport, pinned), api);
-      return model;
+    get state() { return { collapsed: s.collapsed, agent: s.agent }; },
+    update(ctx = {}) { s.ctx = { ...s.ctx, ...ctx }; return draw(); },
+    collapse(on = true) { s.collapsed = !!on; save(); return draw(); },
+    pick(id) { s.agent = id || ''; save(); return draw(); },
+    async loadAgents() {
+      try {
+        const out = await rpc('chat', { action: 'agents' });
+        s.agents = out?.agents || out?.items || [];
+      } catch { s.agents = []; }
+      return draw();
     },
-    drag(pos) { pinned = { x: pos.x, y: pos.y }; prefs?.set(PREF, pinned); if (last) api.update(last); },
-    fire(id, prompt = '') {
-      const text = promptText(prompt);
-      if (AI_ACTIONS[id]?.prompt && !text) return false; // generative fill needs a prompt
-      run(id, text);
-      return true;
+    async send(text) {
+      const t = promptText(text);
+      if (!t) return { ok: false, error: 'Type what you want done.' };
+      s.sending = true; draw();
+      try {
+        const out = await rpc('chat', sendParams({ doc: getDoc(), text: t, agent: s.agent, selection: s.ctx.selection, layer: s.ctx.layer?.id ?? s.ctx.layer, tool: getTool() }));
+        if (s.agent === NEW_AGENT && out?.conv_id) { s.agent = out.conv_id; save(); }
+        return out || { ok: true };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      } finally { s.sending = false; draw(); }
+    },
+    async stop() {
+      const out = await rpc('chat', { action: 'stop', doc: getDoc(), ...(s.agent && s.agent !== NEW_AGENT ? { conv_id: s.agent } : {}) }).catch((e) => ({ ok: false, error: e.message }));
+      s.sending = false; draw();
+      return out;
     },
   };
   return api;
 }
 
-// DOM: builds the pill once under `root`; rendering toggles hidden and moves it.
-export function mountTaskbar(root, { prefs, run }) {
+// DOM: one fixed bar plus the collapsed pill under `root`.
+export function mountTaskbar(root, { prefs, rpc, getDoc, getTool, toast }) {
   const d = root.ownerDocument;
-  const bar = d.createElement('div');
-  bar.className = 'ai-taskbar'; bar.hidden = true;
-  root.append(bar);
+  const w = d.defaultView?.artstudio;
+  const mk = (tag, cls, text) => { const n = d.createElement(tag); n.className = cls; if (text != null) n.textContent = text; return n; };
+  const bar = mk('div', 'ai-bar'); bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'AI prompt bar');
+  const pill = mk('button', 'ai-pill', '✦ AI'); pill.type = 'button';
+  const picker = mk('select', 'ai-bar-agent'); picker.setAttribute('aria-label', 'Agent');
+  const input = mk('input', 'ai-bar-prompt'); input.placeholder = 'Ask the agent to edit this artwork…';
+  const send = mk('button', 'ai-bar-send', 'Send'); send.type = 'button';
+  const status = mk('span', 'ai-bar-status');
+  const stop = mk('button', 'ai-bar-stop', 'Stop'); stop.type = 'button';
+  const close = mk('button', 'ai-bar-close', '✕'); close.type = 'button'; close.title = 'Hide AI bar';
+  bar.append(picker, input, send, status, stop, close);
+  root.append(bar, pill);
+
   const tb = createTaskbar({
-    prefs, run,
-    render(model, pos, api) {
-      bar.hidden = model.hidden;
-      if (model.hidden) return;
-      bar.style.left = `${pos.x}px`; bar.style.top = `${pos.y}px`;
-      bar.replaceChildren();
-      const grip = d.createElement('span'); grip.className = 'ai-taskbar-grip'; grip.textContent = '⋮⋮';
-      bar.append(grip);
-      let input = null;
-      if (model.prompt) {
-        input = d.createElement('input'); input.className = 'ai-taskbar-prompt';
-        input.placeholder = 'Generative fill: describe what to add';
-        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') api.fire('genfill', input.value); });
-        bar.append(input);
-      }
-      for (const b of model.buttons) {
-        const btn = d.createElement('button'); btn.type = 'button'; btn.className = `ai-taskbar-btn ai-${b.id}`;
-        btn.textContent = b.id === 'genfill' ? `${b.label} ▸` : b.label;
-        btn.addEventListener('click', () => api.fire(b.id, input ? input.value : ''));
-        bar.append(btn);
-      }
-      grip.addEventListener('pointerdown', (e) => {
-        const ox = e.clientX - pos.x, oy = e.clientY - pos.y;
-        const move = (m) => api.drag({ x: m.clientX - ox, y: m.clientY - oy });
-        const up = () => { d.removeEventListener('pointermove', move); d.removeEventListener('pointerup', up); };
-        d.addEventListener('pointermove', move); d.addEventListener('pointerup', up);
-      });
+    prefs, rpc: rpc || w?.rpc,
+    getDoc: getDoc || (() => w?.store?.get('doc') || ''),
+    getTool: getTool || (() => w?.tools?.active?.id || w?.tools?.current?.() || ''),
+    render(m) {
+      bar.hidden = m.collapsed; pill.hidden = !m.collapsed;
+      picker.replaceChildren(...m.options.map((o) => { const op = d.createElement('option'); op.value = o.id; op.textContent = o.label; return op; }));
+      picker.value = m.agent;
+      status.textContent = m.working ? '● working' : '● idle';
+      status.dataset.state = m.status;
+      stop.hidden = !m.working; send.disabled = m.working;
     },
   });
+  const go = async () => {
+    const text = input.value;
+    const out = await tb.send(text);
+    if (out?.ok === false) (toast || w?.toast)?.(out.error || 'Send failed'); else input.value = '';
+  };
+  send.addEventListener('click', go);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  stop.addEventListener('click', () => tb.stop());
+  close.addEventListener('click', () => tb.collapse(true));
+  pill.addEventListener('click', () => tb.collapse(false));
+  picker.addEventListener('change', () => tb.pick(picker.value));
+  picker.addEventListener('focus', () => tb.loadAgents());
+  w?.bus?.on?.('status', ({ ai }) => { if (ai) tb.update({ ai }); }); // Watch AI / progress drive idle|working
+  tb.update({});
+  tb.loadAgents();
   return tb;
 }

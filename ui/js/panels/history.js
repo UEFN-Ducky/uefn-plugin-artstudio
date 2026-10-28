@@ -34,6 +34,13 @@ export function stepTo(call, doc, ops, rev) {
   const mixed = Object.keys(byKind).length > 1;
   return Promise.all(Object.entries(byKind).map(([by, n]) => call("undo", { doc, n, ...(mixed && { by }) })));
 }
+// Live pixel states by one author kind (or the whole list when `by` is omitted); per-author undo and the buttons' enabled state share it.
+export const liveBy = (ops, by) => {
+  const gone = undoneSet(ops);
+  return ops.filter((o) => isState(o) && !gone.has(o.rev) && (!by || (o.by?.kind || "ai") === by));
+};
+// "Undo mine" / "Undo AI": undo one op by that author, or null when there is none.
+export const undoBy = (call, doc, ops, by) => (liveBy(ops, by).length ? call("undo", { doc, n: 1, by }) : null);
 // Camera button: a named snapshot is a version commit.
 export const snapshot = (call, doc, msg = "Snapshot") => call("doc", { action: "commit", doc, msg });
 
@@ -73,6 +80,12 @@ export function mount(el, ctx) {
   function render() {
     const gone = undone();
     el.querySelector("[data-msg]").hidden = ops.length > 0;
+    for (const [sel, by, who] of [["[data-undo-self]", "human", "your"], ["[data-undo-ai]", "ai", "AI"]]) {
+      const b = el.querySelector(sel);
+      const none = !liveBy(ops, by).length;
+      b.disabled = none;
+      b.title = none ? `No ${who} edits to undo` : `Undo the last ${who} edit`;
+    }
     list.innerHTML = [...ops].reverse().map((o) => `
       <div class="as-op" data-rev="${o.rev}" data-undone="${gone.has(o.rev)}"${isState(o) && !gone.has(o.rev) ? ' data-state="1" style="cursor:pointer"' : ""}>
         <span aria-hidden="true">${ICONS[o.by?.kind] || "●"}</span>
@@ -85,10 +98,6 @@ export function mount(el, ctx) {
   const sendUndo = (op) => ctx.engine?.applyOp({
     kind: "undo", layer: op.layer, args: { target: op.rev, author: op.by?.id }, by: { kind: selfKind(), id: ctx.live?.selfId || "me" },
   });
-  const lastBy = (match) => {
-    const gone = undone();
-    return [...ops].reverse().find((o) => o.kind !== "undo" && !gone.has(o.rev) && match(o.by || {}));
-  };
 
   el.addEventListener("click", (ev) => {
     const row = ev.target.closest(".as-op");
@@ -100,12 +109,9 @@ export function mount(el, ctx) {
     } else if (row?.dataset.state && doc) {
       stepTo(rpc, doc, ops, +row.dataset.rev).then(load);
     } else if (ev.target.closest("[data-undo-self]")) {
-      const me = ctx.live?.selfId;
-      const op = lastBy((b) => b.kind === "human" && (!me || b.id === me));
-      if (op) sendUndo(op);
+      undoBy(rpc, doc, ops, "human")?.then(load);
     } else if (ev.target.closest("[data-undo-ai]")) {
-      const op = lastBy((b) => b.kind === "ai");
-      if (op) sendUndo(op);
+      undoBy(rpc, doc, ops, "ai")?.then(load);
     }
   });
 

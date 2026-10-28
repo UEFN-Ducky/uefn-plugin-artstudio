@@ -1,18 +1,22 @@
-.ai-taskbar {
-  position: absolute; z-index: 30; display: flex; align-items: center; gap: 6px;
-  padding: 6px 10px; border-radius: 999px;
-  background: var(--card); color: var(--fg); border: 1px solid var(--border);
+.ai-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  background: var(--card); color: var(--fg); border-top: 1px solid var(--border);
+}
+.ai-bar[hidden], .ai-pill[hidden], .ai-bar-stop[hidden] { display: none; }
+.ai-bar-agent, .ai-bar-prompt, .ai-bar-send, .ai-bar-stop, .ai-bar-close {
+  padding: 4px 10px; border-radius: 6px; background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+}
+.ai-bar-prompt { flex: 1; min-width: 0; }
+.ai-bar-send { cursor: pointer; background: var(--purple); color: var(--bg); }
+.ai-bar-send:disabled { opacity: 0.5; cursor: default; }
+.ai-bar-stop, .ai-bar-close { cursor: pointer; }
+.ai-bar-stop:hover, .ai-bar-close:hover { border-color: var(--purple); }
+.ai-bar-status { color: var(--muted); white-space: nowrap; }
+.ai-bar-status[data-state="working"] { color: var(--purple); }
+.ai-pill {
+  position: absolute; right: 12px; bottom: 12px; z-index: 30; cursor: pointer;
+  padding: 4px 12px; border-radius: 999px; background: var(--card); color: var(--fg); border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
 }
-.ai-taskbar[hidden] { display: none; }
-.ai-taskbar-grip { cursor: grab; color: var(--muted); user-select: none; }
-.ai-taskbar-prompt {
-  min-width: 200px; padding: 4px 10px; border-radius: 999px;
-  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
-}
-.ai-taskbar-btn {
-  padding: 4px 12px; border-radius: 999px; cursor: pointer;
-  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
-}
-.ai-taskbar-btn:hover { border-color: var(--purple); }
-.ai-taskbar-btn.ai-genfill { background: var(--purple); color: var(--bg); }
+.ai-pill:hover { border-color: var(--purple); }

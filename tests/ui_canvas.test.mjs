@@ -531,4 +531,195 @@ assert.equal(eng.layers.find((l) => l.id === 'L1').text, undefined);
   assert.equal(rs[1].p.args.since_rev, 5);
 }
 
+// ---- brush dabs are round and overlap into a line (hardness 100, size 20: no squares) ----
+{
+  const { drawStroke, normStroke } = await import('../ui/js/engine/brush.js');
+  const arcs = [], fills = [];
+  const rec = { clearRect() {}, save() {}, restore() {}, drawImage() {}, beginPath() {}, fill() {},
+    createRadialGradient: () => ({ addColorStop() {} }), arc: (x, y, r) => arcs.push({ x, y, r }), fillRect: (...a) => fills.push(a) };
+  const scratch = { width: 100, height: 80, getContext: () => rec };
+  // what the brush tool emits: hardness 0..1, flow/spacing in percent
+  const args = normStroke({ mode: 'paint', points: [[10, 10, 1], [30, 10, 1], [50, 10, 1]], color: HEX('000000'), size: 20, hardness: 1, opacity: 1, flow: 100, spacing: 25 });
+  assert.equal(args.hardness, 100);
+  drawStroke(rec, scratch, args);
+  assert.equal(fills.length, 0, 'no fillRect: dabs are arcs, never squares');
+  assert.ok(arcs.length > 3 && arcs.every((a) => a.r === 10), 'round dabs of radius size/2');
+  const covered = (x, y) => arcs.some((a) => Math.hypot(x - a.x, y - a.y) <= a.r);
+  assert.ok(covered(10, 10), 'dab center is opaque');
+  assert.ok(!covered(1, 19), 'square corner of the first dab (center - 9, + 9) stays transparent');
+  assert.ok(covered(20, 10), 'midpoint between two points is opaque (dabs connect)');
+  const gaps = arcs.slice(1).map((a, i) => a.x - arcs[i].x);
+  assert.ok(gaps.every((d) => d <= 20 * 0.25 + 1e-6), 'spacing follows 25% of size');
+  // a single click (one point, size 30, hardness 100) is one round dab: opaque center, transparent bounding-box corner
+  arcs.length = 0;
+  drawStroke(rec, scratch, normStroke({ mode: 'paint', points: [[50, 40, 1]], color: HEX('000000'), size: 30, hardness: 1, opacity: 1, flow: 100, spacing: 25 }));
+  assert.equal(fills.length, 0);
+  assert.deepEqual(arcs, [{ x: 50, y: 40, r: 15 }]);
+  assert.ok(Math.hypot(0, 0) <= 15 && Math.hypot(14, 14) > 15, 'the corner of the dab box lies outside the arc');
+}
+
+// ---- locked layer: the press is refused once (one toast) for every painting tool, so nothing is previewed or drawn ----
+{
+  const { createToolFor } = await import('../ui/js/tools/registry.js');
+  const log = [];
+  const rec = { id: 'k', name: 'K', w: 100, h: 80, rev: 0, checkpoint_rev: 0, layers: [{ id: 'L1', name: 'L1', kind: 'raster', visible: true, opacity: 1, blend: 'normal', locked: true }] };
+  const ke = createEngine({ by: { kind: 'human', id: 'u7', label: 'U7' }, call: async () => ({ value: rec }),
+    rpc: async (m, p) => (m === 'op_append' ? (log.push(p.op), { ok: true, rev: log.length }) : { ok: true, ops: [] }) });
+  await ke.load('k');
+  const toasts = [];
+  const toast = (m) => toasts.push(m);
+  for (const id of ['brush', 'pencil', 'eraser', 'fill', 'gradient', 'shape', 'text', 'stamp', 'heal', 'dodge', 'smudge', 'blur', 'pen', 'move']) {
+    toasts.length = 0;
+    const parent = (await import('../ui/js/tools/registry.js')).parentOf(id);
+    const tool = createToolFor(id, ke.toolContext({ store: { get: (k) => (k === 'activeLayerId' ? 'L1' : undefined) } }));
+    // what the canvas panel does on pointerdown / move / up
+    const allowed = ke.pressAllowed(parent, 'L1', toast);
+    if (allowed) { tool.pointerDown({ x: 10, y: 10 }, {}); tool.pointerMove({ x: 30, y: 20 }, {}); tool.pointerUp({ x: 30, y: 20 }, {}); }
+    assert.equal(allowed, false, id);
+    assert.deepEqual(toasts, ['Layer is locked'], id);
+  }
+  await tick();
+  assert.equal(log.length, 0, 'no op reached the backend');
+  assert.equal((ke.layerCanvas('__preview').draws || []).length, 0, 'nothing previewed');
+  assert.equal((ke.layerCanvas('L1').draws || []).length, 0, 'nothing drawn on the locked layer');
+  assert.equal(ke.pressAllowed('hand', 'L1', toast), true); // view tools still work on a locked layer
+  assert.equal(ke.pressAllowed('marquee', 'L1', toast), true);
+}
+
+// ---- right-click tool options: crop ratio, eyedropper sample, heal size, pen mode, shape fill / stroke / width / radius, highlight mode ----
+{
+  const { createToolFor, optsFor } = await import('../ui/js/tools/registry.js');
+  const { toolOptions } = await import('../ui/js/core/tools.js');
+  const { polygonMask } = await import('../ui/js/engine/selection.js');
+  const log = [];
+  const rec = { id: 'o', name: 'O', w: 100, h: 80, rev: 0, checkpoint_rev: 0, layers: [{ id: 'L1', name: 'L1', kind: 'raster', visible: true, opacity: 1, blend: 'normal', locked: false }] };
+  const oe = createEngine({ by: { kind: 'human', id: 'u9', label: 'U9' }, call: async () => ({ value: rec }),
+    rpc: async (m, p) => (m === 'op_append' ? (log.push(p.op), { ok: true, rev: log.length }) : { ok: true, ops: [] }) });
+  await oe.load('o');
+  const colors = { foreground: HEX('112233'), background: HEX('ffffff') };
+  let picked = null;
+  const store = { get: (k) => (k === 'brush' ? { size: 10, hardness: 100, opacity: 100, flow: 100, spacing: 25 } : k === 'activeLayerId' ? 'L1' : undefined), setForeground: (c) => { picked = c; } };
+  const mk = (id) => {
+    const c = oe.toolContext({ store, extraOpts: () => optsFor(id, toolOptions.get(), colors, {}) });
+    c.select = (pts) => oe.selection.apply(polygonMask(100, 80, pts));
+    c.getPixels = (all, rect) => (typeof all === 'boolean' ? oe.getPixels(all ? undefined : 'L1', rect) : oe.getPixels(all, rect)); // as the canvas panel does
+    return createToolFor(id, c);
+  };
+  const P = (x, y) => ({ x, y });
+  const opsOf = async (fn) => { const n = log.length; await fn(); await tick(); await tick(); return log.slice(n); };
+  const drag = (t, a, b) => { t.pointerDown(a, {}); t.pointerMove(b, {}); t.pointerUp(b, {}); };
+
+  // crop: 1:1 turns a 100 x 40 drag into a 40 x 40 box; free leaves it; deleteCropped reaches the op
+  toolOptions.set({ cropRatio: '1:1', deleteCropped: false });
+  let ops = await opsOf(() => { const t = mk('crop'); drag(t, P(0, 0), P(100, 40)); t.key({ key: 'Enter' }); });
+  assert.deepEqual([ops[0].args.w, ops[0].args.h, ops[0].args.ratio, ops[0].args.delete_pixels], [40, 40, '1:1', false]);
+  toolOptions.set({ cropRatio: '16:9', deleteCropped: true });
+  ops = await opsOf(() => { const t = mk('crop'); drag(t, P(0, 0), P(90, 90)); t.key({ key: 'Enter' }); });
+  near(ops[0].args.w / ops[0].args.h, 16 / 9);
+  toolOptions.set({ cropRatio: 'free' });
+  ops = await opsOf(() => { const t = mk('crop'); drag(t, P(0, 0), P(100, 40)); t.key({ key: 'Enter' }); });
+  assert.deepEqual([ops[0].args.w, ops[0].args.h, ops[0].args.ratio], [100, 40, null]);
+
+  // eyedropper: a 3x3 average of the composite, or of the active layer only
+  {
+    const mkPx = (fn) => { const px = new Uint8ClampedArray(100 * 80 * 4); for (let i = 0; i < 100 * 80; i++) px.set(fn(i), i * 4); return px; };
+    oe.thumbnail().px = mkPx(() => [0, 0, 0, 255]);
+    oe.layerCanvas('L1').px = mkPx(() => [0, 0, 0, 255]);
+    oe.thumbnail().px[((10 * 100) + 10) * 4] = 90; // one reddish pixel at (10,10) of the composite
+    oe.layerCanvas('L1').px[((10 * 100) + 10) * 4] = 0;
+    toolOptions.set({ sampleSize: 'point', sampleScope: 'all-layers' });
+    mk('eyedropper').pointerDown(P(10, 10)); assert.equal(picked, '#5a0000');
+    toolOptions.set({ sampleSize: '3x3' });
+    mk('eyedropper').pointerDown(P(10, 10)); assert.equal(picked, '#0a0000'); // 90 / 9
+    toolOptions.set({ sampleScope: 'current-layer' });
+    mk('eyedropper').pointerDown(P(10, 10)); assert.equal(picked, '#000000'); // the layer has no red
+    toolOptions.set({ sampleSize: 'point', sampleScope: 'all-layers' });
+  }
+
+  // heal: its own size / hardness win over the brush store
+  toolOptions.set({ healSize: 44, healHardness: 30 });
+  ops = await opsOf(() => drag(mk('heal'), P(10, 10), P(30, 30)));
+  assert.deepEqual([ops[0].args.size, ops[0].args.hardness], [44, 0.3]);
+  toolOptions.set({ healSize: undefined, healHardness: undefined });
+  ops = await opsOf(() => drag(mk('heal'), P(10, 10), P(30, 30)));
+  assert.equal(ops[0].args.size, 10);
+
+  // pen: shape mode posts a shape with fill + stroke; path mode makes a selection and no op
+  {
+    const click = (t, p) => { t.pointerDown(p); t.pointerUp(p); };
+    const square = [P(10, 10), P(60, 10), P(60, 50), P(10, 50)];
+    toolOptions.set({ penMode: 'shape', penFill: true, penStroke: HEX('abcdef'), strokeWidth: 5 });
+    ops = await opsOf(() => { const t = mk('pen'); square.forEach((p) => click(t, p)); t.key({ key: 'Enter' }); });
+    assert.deepEqual([ops[0].kind, ops[0].args.fill, ops[0].args.stroke, ops[0].args.width], ['shape', '#112233', '#abcdef', 5]);
+    toolOptions.set({ penFill: false });
+    ops = await opsOf(() => { const t = mk('pen'); square.forEach((p) => click(t, p)); t.key({ key: 'Enter' }); });
+    assert.equal(ops[0].args.fill, null);
+    toolOptions.set({ penMode: 'path' });
+    oe.selection.clear();
+    ops = await opsOf(() => { const t = mk('pen'); square.forEach((p) => click(t, p)); t.key({ key: 'Enter' }); });
+    assert.equal(ops.length, 0); assert.equal(oe.selection.active, true);
+    oe.selection.clear();
+    toolOptions.set({ penMode: 'shape', penFill: undefined, penStroke: undefined, strokeWidth: undefined });
+  }
+
+  // shapes: fill toggle, stroke color, width, corner radius
+  toolOptions.set({ strokeWidth: 6, shapeFill: false, shapeStroke: HEX('00ff00'), cornerRadius: 9 });
+  ops = await opsOf(() => drag(mk('rounded-rectangle'), P(10, 10), P(60, 40)));
+  assert.deepEqual([ops[0].args.shape, ops[0].args.width, ops[0].args.fill, ops[0].args.stroke, ops[0].args.radius], ['rounded', 6, null, '#00ff00', 9]);
+  toolOptions.set({ shapeFill: true });
+  ops = await opsOf(() => drag(mk('rectangle'), P(10, 10), P(60, 40)));
+  assert.deepEqual([ops[0].args.width, ops[0].args.fill], [6, '#112233']);
+  toolOptions.set({ strokeWidth: undefined, shapeFill: undefined, shapeStroke: undefined, cornerRadius: undefined });
+  ops = await opsOf(() => drag(mk('rectangle'), P(10, 10), P(60, 40)));
+  assert.deepEqual([ops[0].args.width, ops[0].args.fill, ops[0].args.stroke], [2, '#112233', '#112233']); // defaults unchanged
+
+  // highlight: the Mode option switches the plain Highlight tool; an explicit lasso variant still wins
+  {
+    const tools = await import('../ui/js/core/tools.js');
+    const { registerHighlight } = await import('../ui/js/feedback/highlight.js');
+    registerHighlight(tools);
+    const regions = [];
+    const el = () => ({ setAttribute() {}, removeAttribute() {}, append() {}, remove() {} });
+    let variant = 'highlight';
+    const c = oe.toolContext({ extraOpts: () => optsFor('highlight', toolOptions.get(), colors, {}) });
+    Object.assign(c, { host: { append() {}, addEventListener() {} }, getVariant: () => variant, onRegion: (r) => regions.push(r) });
+    globalThis.document = { createElementNS: el };
+    const h = createToolFor('highlight', c);
+    delete globalThis.document;
+    const run = () => { h.pointerDown(P(10, 10)); [P(40, 10), P(10, 40), P(40, 40)].forEach((p) => h.pointerMove(p)); h.pointerUp(); };
+    run(); assert.equal(regions.at(-1).type, 'rect');
+    toolOptions.set({ highlightMode: 'lasso' });
+    run(); assert.equal(regions.at(-1).type, 'lasso');
+    toolOptions.set({ highlightMode: 'rect' }); variant = 'highlight-lasso';
+    run(); assert.equal(regions.at(-1).type, 'lasso');
+    toolOptions.set({ highlightMode: undefined });
+  }
+}
+
+// ---- popover size: the value the right-click popover writes (writeOption -> ctx.brush) is the next stroke's size ----
+{
+  const { createToolFor, optsFor } = await import('../ui/js/tools/registry.js');
+  const { toolOptions } = await import('../ui/js/core/tools.js');
+  const { createStore } = await import('../ui/js/core/store.js');
+  const { DEFAULT_BRUSH } = await import('../ui/js/core/models.js');
+  const { writeOption } = await import('../ui/js/panels/tool-options.js');
+  const log = [];
+  const rec = { id: 's', name: 'S', w: 100, h: 80, rev: 0, checkpoint_rev: 0, layers: [{ id: 'L1', name: 'L1', kind: 'raster', visible: true, opacity: 1, blend: 'normal', locked: false }] };
+  const se = createEngine({ by: { kind: 'human', id: 'u8', label: 'U8' }, call: async () => ({ value: rec }),
+    rpc: async (m, p) => (m === 'op_append' ? (log.push(p.op), { ok: true, rev: log.length }) : { ok: true, ops: [] }) });
+  await se.load('s');
+  const ctx = {}; // like the panel ctx: the brush store appears later, the engine reads it lazily
+  const store = { get: (k) => (k === 'brush' ? ctx.brush?.get?.() : k === 'activeLayerId' ? 'L1' : undefined) };
+  for (const id of ['pencil', 'brush', 'eraser']) {
+    ctx.brush = createStore({ ...DEFAULT_BRUSH, preset: 'basic-round' });
+    const tool = createToolFor(id, se.toolContext({ store, extraOpts: () => optsFor(id, toolOptions.get(), {}, {}) }));
+    writeOption(ctx.brush, 'size', 12); writeOption(ctx.brush, 'hardness', 60); writeOption(ctx.brush, 'opacity', 50); writeOption(ctx.brush, 'flow', 40);
+    const n = log.length;
+    tool.pointerDown({ x: 10, y: 10 }); tool.pointerMove({ x: 40, y: 20 }); tool.pointerUp({ x: 40, y: 20 });
+    await tick(); await tick();
+    const a = log[n].args;
+    assert.deepEqual([a.size, a.hardness, a.opacity, a.flow], [12, 60, 0.5, id === 'eraser' ? undefined : 40], id); // the eraser op carries no flow
+  }
+}
+
 console.log('ui_canvas ok');

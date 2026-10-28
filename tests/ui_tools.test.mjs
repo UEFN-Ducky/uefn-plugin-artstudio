@@ -63,7 +63,12 @@ const dead = Object.values(TOOLS).filter((t) => !t.hidden || t.parent).map((t) =
 assert.deepEqual(dead, [], "tools without a module");
 assert.deepEqual(getVariants("eraser"), ["eraser"]);
 // toolbar: no visible tool falls back to a letter glyph
-const { ICONS } = await import("../ui/js/panels/toolbar.js");
+const { ICONS, CSS: TB_CSS } = await import("../ui/js/panels/toolbar.js");
+// two-column 28px grid; every top-level slot fits a 700px window with room for the swatches
+assert.match(TB_CSS, /grid-template-columns:repeat\(2,28px\)/);
+assert.match(TB_CSS, /\.tb\{[^}]*height:100%[^}]*var\(--card\)/);
+const slots = Object.values(TOOLS).filter((t) => !t.hidden && !t.parent).length;
+assert.ok(Math.ceil(slots / 2) * 30 < 700 - 120, `toolbar too tall: ${slots} slots`);
 const noIcon = Object.values(TOOLS).filter((t) => !t.hidden).map((t) => t.id).filter((id) => !ICONS[id]);
 assert.deepEqual(noIcon, [], "visible tools without an icon");
 
@@ -77,7 +82,7 @@ mountMenu(stubEl, mctx);
 const used = [];
 const walk = (items) => items.forEach((it) => { if (it.run?.cmd) used.push(it.run.cmd); if (it.sub) walk(it.sub); });
 const spec = mctx.menuSpec();
-assert.deepEqual(Object.keys(spec), ["File", "Edit", "Image", "Layer", "Select", "Filter", "AI", "View", "Window", "Help"]);
+assert.deepEqual(Object.keys(spec), ["File", "Edit", "Image", "Layer", "Select", "Filter", "View", "Window", "Help"]);
 Object.values(spec).forEach(walk);
 assert.ok(used.length > 50);
 assert.ok(used.includes("doc.new") && used.includes("image.canvas_size") && used.includes("filter.open"));

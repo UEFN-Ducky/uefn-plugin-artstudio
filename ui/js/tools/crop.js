@@ -31,6 +31,15 @@ export function cropArgs(r, o = {}) {
   return { mode: 'crop', x: r.x, y: r.y, w: r.w, h: r.h, delete_pixels: o.deletePixels ?? true, ratio: o.ratio ?? null };
 }
 
+// '1:1' / '16:9' -> w/h, anything else (free) -> null
+export const ratioOf = (s) => { const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(s || ''); return m ? m[1] / m[2] : null; };
+// Shrink r to the ratio, keeping the edges the dragged handle does not move
+export function fitRatio(r, handle, k) {
+  if (!k || handle === 'move') return r;
+  const w = Math.min(r.w, r.h * k), h = w / k;
+  return { x: handle.includes('w') ? r.x + r.w - w : r.x, y: handle.includes('n') ? r.y + r.h - h : r.y, w, h };
+}
+
 // ctx: { engine, getOpts(), emit(kind, layer, args) }; bounds {w,h} from engine.doc if present
 export function createCropTool(ctx) {
   let rect = null, mode = null, last = null;
@@ -52,7 +61,7 @@ export function createCropTool(ctx) {
     },
     pointerMove(p) {
       if (!mode) return;
-      rect = clampR(resizeRect(rect, mode, p.x - last.x, p.y - last.y));
+      rect = fitRatio(clampR(resizeRect(rect, mode, p.x - last.x, p.y - last.y)), mode, ratioOf(ctx.getOpts().ratio));
       // dragging past an edge flips the handle names
       last = p; show();
     },
