@@ -58,12 +58,12 @@ export function mount(el, ctx) {
   const list = el.querySelector("[data-list]");
   let ops = [];
   let doc = null;
-  let busy = false;
+  let busy = false, again = false;
 
   async function load() {
     doc = ctx.store.get().doc;
     if (!doc) { ops = []; return render(); }
-    if (busy) return;
+    if (busy) { again = true; return; } // a change mid-load reloads once more, so the list never lags behind
     busy = true;
     try {
       const out = await rpc("artstudio_ops_since", { doc, rev: 0 });
@@ -71,6 +71,7 @@ export function mount(el, ctx) {
     } catch { ops = []; }
     busy = false;
     render();
+    if (again) { again = false; load(); }
   }
 
   // An undo op names the rev it cancels in args.target.
@@ -118,6 +119,7 @@ export function mount(el, ctx) {
   ctx.engine?.onLocalOp?.(() => setTimeout(load, 0));
   onEvent((e) => { if (e.type === "artstudio_op") load(); });
   ctx.bus.on("doc", load);
+  ctx.bus.on("doc.rev", load);
   ctx.bus.on("visibility", (v) => v.visible && load());
   load();
 }

@@ -36,6 +36,8 @@ export function translate(method, params = {}) {
   if (ACTIONS.brush[method]) return ['brush', { action: ACTIONS.brush[method], ...params }];
   if (ACTIONS.recipe[method]) return ['recipe', { action: ACTIONS.recipe[method], ...params }];
   switch (method) {
+    // The op log is a doc action: engine catch-up (undo/redo redraw), redo and the History panel all read it.
+    case 'ops_since': case 'artstudio_ops_since': return ['doc', { action: 'ops_since', ...params }];
     case 'open_image': { const { path, name, ...rest2 } = params; return ['doc', { ...rest2, action: 'open_image', args: { path, ...(name != null && { name }) } }]; }
     case 'retouch': { const { doc, layer, ops = [], ...rest2 } = params; return ['apply', { ...rest2, doc, ops: ops.map((o) => ({ ...o, layer: o.layer ?? layer })) }]; }
     case 'layer_set': return ['layer', { action: 'set', ...params }];

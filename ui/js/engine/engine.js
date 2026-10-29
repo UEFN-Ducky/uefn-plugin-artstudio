@@ -758,6 +758,8 @@ export async function mount(el, ctx) {
   ctx.engine = eng; eng.bindBus(ctx.bus);
   ctx.docSize = () => ({ w: eng.doc?.w ?? 0, h: eng.doc?.h ?? 0 });
   eng.onResize((s) => ctx.bus.emit('doc.resized', s));
+  let lastRev = -1; // History and other panels follow the op log through 'doc.rev', local edits included
+  eng.onChange(() => { if (eng.rev !== lastRev) { lastRev = eng.rev; ctx.bus.emit('doc.rev', lastRev); } });
   const g = cv.getContext('2d');
   let dirty = true;
   const colors = () => ({

@@ -21,6 +21,9 @@ assert.equal(last().method, 'layer');
 assert.equal(last().params.action, 'set');
 
 assert.deepEqual(translate('doc_ops_since', { doc: 'd' }), ['doc', { action: 'ops_since', doc: 'd' }]);
+// The op log is a doc action: engine catch-up (undo/redo redraw), redo and History read it by these names too.
+assert.deepEqual(translate('ops_since', { doc: 'd', rev: 3, limit: 200 }), ['doc', { action: 'ops_since', doc: 'd', rev: 3, limit: 200 }]);
+assert.deepEqual(translate('artstudio_ops_since', { doc: 'd', rev: 0 }), ['doc', { action: 'ops_since', doc: 'd', rev: 0 }]);
 assert.deepEqual(translate('doc_list'), ['doc', { action: 'list' }]);
 assert.deepEqual(translate('style_save', {}), ['style', { action: 'save' }]);
 assert.deepEqual(translate('artstudio_brush_import', {}), ['brush', { action: 'import' }]);

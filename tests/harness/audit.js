@@ -40,6 +40,9 @@ export const STEPS = {
   clickall: [['clickall']], // every-control click-through; ?sect=menu:File|tools|dock|tabs|aibar|focus|shape|console
   v4: [['v4']], // feedback audit; ?only=<1..8> runs one check (see v4.js)
   'freetransform': [['cmd', 'select.all'], ['key', 't', { ctrlKey: true }]],
+  // Ctrl+Z / Ctrl+Y as a person presses them: keydown on the focused canvas, then the pixels at the stroke
+  ctrlz: [['key', 'b'], ['pix', 'before'], ['drag'], ['wait', 1500], ['pix', 'drawn'], ['canvaskey', 'z', { ctrlKey: true }], ['wait', 2500], ['pix', 'ctrl+z'],
+    ['canvaskey', 'y', { ctrlKey: true }], ['wait', 2500], ['pix', 'ctrl+y'], ['ops'], ['hist']],
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = [];
@@ -87,6 +90,10 @@ export async function run(name, win) {
       else if (verb === 'v4') await (await import('/harness/v4.js')).v4(win, log, Number(new URLSearchParams(location.search).get('only')) || 0);
       else if (verb === 'cmd') win.artstudio.dispatch(a, { doc: win.artstudio.store.get().doc });
       else if (verb === 'key') doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: a, bubbles: true, ...(b || {}) }));
+      else if (verb === 'canvaskey') { const c = q('[data-panel="canvas"] canvas'); c.focus(); c.dispatchEvent(new win.KeyboardEvent('keydown', { key: a, code: 'Key' + a.toUpperCase(), bubbles: true, cancelable: true, ...(b || {}) })); }
+      else if (verb === 'wait') await sleep(a);
+      else if (verb === 'hist') log.push('history rows: ' + [...doc.querySelectorAll('[data-panel="history"] .as-op')].map((r) => r.textContent.trim().replace(/\s+/g, ' ').slice(0, 30)).join(' | '));
+      else if (verb === 'ops') { const r = await (await fetch('/rpc', { method: 'POST', body: JSON.stringify({ method: 'doc', params: { action: 'ops_since', doc: win.artstudio.store.get().doc, rev: 0 } }) })).json(); log.push('ops: ' + (r.ops || []).map((o) => `${o.rev}:${o.kind}${o.args?.target ? '>' + o.args.target : ''}@${o.by?.id}`).join(' ')); }
       else if (verb === 'probe') {
         log.push('dock-buttons: ' + [...doc.querySelectorAll('[data-dock] button')].filter((b) => b.offsetParent).map((b) => (b.textContent || b.title || b.ariaLabel || '').trim().slice(0, 14)).join('|'));
         const L = q('[data-panel="layers"]');
