@@ -129,7 +129,15 @@ assert.equal(bottom.find((i) => i.label === 'Merge Down').disabled, true);
 assert.equal(items.find((i) => i.label === 'Merge Down').disabled, false);
 
 // --- tab menu ---
-assert.deepEqual(labels(tabItems('a', ctx)), ['Close', 'Close Others', 'Duplicate', 'Reveal in Versions', 'Delete artwork…']);
+assert.deepEqual(labels(tabItems('a', ctx)), ['Close', 'Close Others', 'Duplicate', 'Move to Project', 'Reveal in Versions', 'Delete artwork…']);
+{ // Move to Project lists the other projects and moves the canvas there
+  const moved = [];
+  const pctx = { dispatch() {}, projects: { move: (d, p) => moved.push([d, p]) }, store: { get: () => ({ docs: [{ id: 'a', project: 'default' }], projects: [{ id: 'default', name: 'My Project' }, { id: 'p1', name: 'Testing' }] }) } };
+  const mv = tabItems('a', pctx).find((i) => i.label === 'Move to Project');
+  assert.deepEqual(mv.sub.map((s) => s.label), ['Testing']);
+  mv.sub[0].run();
+  assert.deepEqual(moved, [['a', 'p1']]);
+}
 installTab(ctx);
 handlers['doctab.context']({ doc: 'a', x: 1, y: 1 });
 assert.ok(menuLabels().includes('Reveal in Versions'));

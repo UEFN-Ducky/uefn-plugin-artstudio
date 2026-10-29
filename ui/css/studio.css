@@ -12,6 +12,11 @@ html { overflow: hidden; } /* the studio fills the panel; nothing scrolls the pa
 .studio__bar { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; flex: none; height: 32px; padding: 0 8px; background: var(--card); border-bottom: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .studio__menu { display: flex; align-items: center; gap: 8px; flex: none; }
 
+/* project switcher: the canvases' tabs to its right belong to this project */
+.studio__project { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 24px; max-width: 180px; padding: 0 10px;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
+.studio__project > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio__project:hover, .studio__project[aria-expanded="true"] { border-color: var(--accent); }
 /* document tabs share the bar: compact pills that scroll sideways, + (New) at the right */
 .studio__doctabs { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .studio__doctabs::-webkit-scrollbar { display: none; }
@@ -64,7 +69,17 @@ html { overflow: hidden; } /* the studio fills the panel; nothing scrolls the pa
 .studio__dock.is-collapsed .lb, .studio__dock.is-collapsed .studio__gmenu,
 .studio__dock.is-collapsed .studio__gtoggle, .studio__dock.is-collapsed .studio__gclose, .studio__dock.is-collapsed .studio__resize { display: none; }
 .studio__dock.is-collapsed .studio__tabs { flex-direction: column; }
-.studio__dock.is-collapsed [data-tab][aria-selected="false"] { opacity: 0.6; }
+/* collapsed strip: bare icons like Photoshop's panel icons, no pill backgrounds; the open one is accent-colored */
+.studio__dock.is-collapsed { gap: 2px; padding: 4px 2px; }
+.studio__dock.is-collapsed .studio__tabs { gap: 2px; align-items: center; }
+.studio__dock.is-collapsed .studio__pgroup:not(:first-of-type) { border-top: 1px solid var(--border); border-radius: 0; padding-top: 4px; }
+.studio .studio__dock.is-collapsed [data-tab], .studio .studio__dock.is-collapsed .studio__dock-toggle {
+  width: 28px; height: 28px; min-width: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; box-shadow: none; border-radius: 6px; color: var(--muted); }
+.studio .studio__dock.is-collapsed [data-tab]:hover, .studio .studio__dock.is-collapsed .studio__dock-toggle:hover { color: var(--fg); background: none; }
+.studio .studio__dock.is-collapsed [data-tab][aria-selected="true"] { color: var(--accent); background: none; }
+.studio__dock.is-collapsed .studio__dock-toggle { align-self: center; }
+.studio__dock.is-collapsed .studio__pgroup, .studio__dock.is-collapsed .studio__pgroup[data-dock-group] { min-height: 0; flex: none; }
 /* stage: the canvas fills what the AI bar leaves, so art never scrolls under the bar */
 .studio__stage { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .studio__canvas { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 8px; }

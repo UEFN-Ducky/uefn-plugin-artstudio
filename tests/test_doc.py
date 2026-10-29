@@ -236,3 +236,24 @@ def test_panel_rpcs_are_the_tools():
     out = api.rpcs["apply"](doc=r["doc"], ops=[{"kind": "stroke", "layer": "L1", "args": {"pts": [[2, 2]], "size": 3}}])
     assert out["ok"] and out["rev"] == 4
     assert api.rpcs["undo"](doc=r["doc"], n=1, by="ai")["undone"] == 1
+
+
+def test_projects_group_canvases():
+    api = FakeApi()
+    doc.register(api)
+    t = api.tools["artstudio_doc"]
+    old = t("new", name="Old", w=8, h=8)["doc"]  # made without a project: lives in the default one
+    assert [p["id"] for p in t("projects")["projects"]] == ["default"]
+    pid = t("project_new", name="Testing")["project"]
+    a = t("new", name="Case A", w=8, h=8, project=pid)["doc"]
+    t("new", name="Case B", w=8, h=8, project=pid)
+    assert {d["name"] for d in t("list", project=pid)["docs"]} == {"Case A", "Case B"}
+    assert [d["id"] for d in t("list", project="default")["docs"]] == [old]
+    assert {p["name"]: p["canvases"] for p in t("projects")["projects"]} == {"My Project": 1, "Testing": 2}
+    assert t("get", a)["project"] == pid
+    assert not t("project_delete", project=pid)["ok"]  # never deletes canvases with it
+    assert t("move", a, project="default")["ok"] and t("get", a)["project"] == "default"
+    assert not t("move", a, project="nope")["ok"]
+    assert t("project_rename", project=pid, name="Car game")["name"] == "Car game"
+    t("move", t("list", project=pid)["docs"][0]["id"], project="default")
+    assert t("project_delete", project=pid)["ok"] and [p["id"] for p in t("projects")["projects"]] == ["default"]

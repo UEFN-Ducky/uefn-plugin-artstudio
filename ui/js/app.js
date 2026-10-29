@@ -20,6 +20,7 @@ import * as newDocDialog from "./dialogs/new-doc.js";
 import * as taskbar from "./ai/taskbar.js";
 import * as aiActions from "./ai/ai-actions.js";
 import { dialog } from "./ui/dialog.js";
+import { openMenu } from "./ui/menu.js";
 import * as feedback from "./feedback/popup.js";
 import * as chatDrawer from "./chat/drawer.js";
 import { openShortcutsDialog } from "./dialogs/shortcuts.js";
@@ -31,7 +32,10 @@ const prefs = { // dock layout survives reloads
   set: (k, v) => { try { localStorage.setItem(`artstudio.${k}`, JSON.stringify(v)); } catch { /* storage off */ } },
 };
 
-const store = createStore({ docs: [], doc: null, status: "loading", error: "", visible: true, zoom: 1, live: 0, ai: "idle", closed: prefs.get("closedDocs") || [] });
+// Projects > Canvases: `docs` holds every canvas (each says its project); tabs show only the open project's.
+const store = createStore({ docs: [], doc: null, status: "loading", error: "", visible: true, zoom: 1, live: 0, ai: "idle", closed: prefs.get("closedDocs") || [],
+  projects: [], project: prefs.get("project") || "default" });
+const inProject = (docs, project) => docs.filter((d) => (d.project || "default") === project);
 const handlers = new Map();
 const bus = {
   on(name, fn) { (handlers.get(name) || handlers.set(name, new Set()).get(name)).add(fn); },
@@ -128,9 +132,9 @@ function renderState() {
   const views = {
     loading: '<div class="dk-loading">Loading Art Studio…</div>',
     error: `<div class="dk-error"><div class="dk-error__title">Couldn't load your artwork</div>${esc(error)}<div><button class="dk-btn" data-act="retry">Try again</button></div></div>`,
-    empty: '<div class="dk-empty"><div class="dk-empty__title">No artwork yet — ask Ducky to draw one</div>Or press New to start a blank canvas.</div>',
+    empty: `<div class="dk-empty"><div class="dk-empty__title">No canvases in ${esc(projectName())} yet</div>Press + for a new canvas, or ask Ducky to draw one here.</div>`,
   };
-  const key = status === "ready" && !docs.length ? "empty" : status;
+  const key = status === "ready" && !inProject(docs, store.get().project).length ? "empty" : status;
   el.hidden = !views[key];
   el.innerHTML = views[key] || "";
 }
@@ -139,29 +143,89 @@ function renderState() {
 async function loadDocs() {
   try {
     // The backend owns the doc list (same function as artstudio_doc list); raw data.list keys don't carry it.
-    const out = await rpc("doc", { action: "list", limit: 200 });
+    const [out, pr] = await Promise.all([rpc("doc", { action: "list", limit: 200 }), rpc("doc", { action: "projects" }).catch(() => null)]);
     if (out?.ok === false) throw new Error(out.error || out.err || "doc list failed");
     const docs = (out?.docs || out?.items || []).filter((d) => d && d.id);
-    const { doc: cur, closed } = store.get();
-    store.set({ docs, status: "ready", error: "", doc: pickDoc(docs, closed, cur) });
+    const projects = pr?.projects?.length ? pr.projects : [{ id: "default", name: "My Project", canvases: docs.length }];
+    let { doc: cur, closed, project } = store.get();
+    if (!projects.some((p) => p.id === project)) project = projects[0].id; // the open project was deleted elsewhere
+    store.set({ docs, projects, project, status: "ready", error: "", doc: pickDoc(inProject(docs, project), closed, cur) });
   } catch (err) {
     store.set({ status: "error", error: err.message });
   }
 }
 
+// ---- projects ------------------------------------------------------------
+const projectName = (id = store.get().project) => store.get().projects.find((p) => p.id === id)?.name || "My Project";
+const askName = (title, value = "") => dialog({ title, ok: "Save", body: (el) => {
+  const input = el.ownerDocument.createElement("input");
+  input.className = "dk-input"; input.value = value; input.placeholder = "Project name"; input.setAttribute("aria-label", title);
+  el.append(input);
+  return () => ({ text: input.value.trim() });
+} }).then((v) => v?.text || "");
+const switchProject = (id) => {
+  const { docs, closed, doc } = store.get();
+  prefs.set("project", id);
+  store.set({ project: id, doc: pickDoc(inProject(docs, id), closed, doc) });
+};
+ctx.projects = {
+  switchTo: switchProject,
+  async create() {
+    const name = await askName("New project");
+    if (!name) return;
+    const out = await rpc("doc", { action: "project_new", name }).catch((e) => ({ ok: false, error: e.message }));
+    if (out?.ok === false) return toast(out.error || "Could not create the project");
+    await loadDocs(); switchProject(out.project);
+  },
+  async rename(id = store.get().project) {
+    const name = await askName("Rename project", projectName(id));
+    if (!name) return;
+    const out = await rpc("doc", { action: "project_rename", project: id, name }).catch((e) => ({ ok: false, error: e.message }));
+    if (out?.ok === false) return toast(out.error || "Rename failed");
+    loadDocs();
+  },
+  async remove(id = store.get().project) {
+    const ok = await dialog({ title: "Delete project", ok: "Delete", body: (el) => { el.textContent = `Delete the empty project “${projectName(id)}”?`; } });
+    if (!ok) return;
+    const out = await rpc("doc", { action: "project_delete", project: id }).catch((e) => ({ ok: false, error: e.message }));
+    if (out?.ok === false) return toast(out.error || "Delete failed");
+    await loadDocs(); switchProject(store.get().projects[0]?.id || "default");
+  },
+  async move(docId, id) {
+    const out = await rpc("doc", { action: "move", doc: docId, project: id }).catch((e) => ({ ok: false, error: e.message }));
+    if (out?.ok === false) return toast(out.error || "Move failed");
+    toast(`Moved to ${projectName(id)}`, "ok");
+    loadDocs();
+  },
+};
+function openProjectMenu(btn) {
+  const { projects, project } = store.get(), cur = projects.find((p) => p.id === project);
+  const r = btn.getBoundingClientRect();
+  btn.setAttribute("aria-expanded", "true");
+  openMenu([
+    ...projects.map((p) => ({ label: p.name, shortcut: String(p.canvases ?? ""), checked: p.id === project, run: () => switchProject(p.id) })),
+    { sep: true },
+    { label: "New Project…", run: () => ctx.projects.create() },
+    { label: "Rename Project…", run: () => ctx.projects.rename() },
+    { label: "Delete Project…", disabled: !!cur?.canvases, shortcut: cur?.canvases ? "empty only" : "", run: () => ctx.projects.remove() },
+  ], { x: r.left, y: r.bottom + 4, onClose: () => btn.setAttribute("aria-expanded", "false") });
+}
+
 // One pill per open doc: name, dirty dot, close ×. Right-click emits doctab.context for the menu seat.
 function renderTabs() {
-  const { docs, doc, closed } = store.get();
-  $("[data-doc-tabs]").innerHTML = openDocs(docs, closed).map((d) =>
+  const { docs, doc, closed, project } = store.get();
+  const nameEl = $("[data-project-name]");
+  if (nameEl) nameEl.textContent = projectName();
+  $("[data-doc-tabs]").innerHTML = openDocs(inProject(docs, project), closed).map((d) =>
     `<button class="studio__doctab" role="tab" data-doc-tab="${esc(d.id)}" aria-selected="${d.id === doc}">${esc(d.name || d.id)}` +
     `${d.dirty ? '<span class="studio__doctab-dot" title="Unsaved changes"></span>' : ""}` +
     `<span class="studio__doctab-close" data-doc-close="${esc(d.id)}" role="button" aria-label="Close ${esc(d.name || d.id)}" title="Close">×</span></button>`).join("");
 }
 
 function closeTab(id) {
-  const { docs, doc, closed } = store.get();
+  const { docs, doc, closed, project } = store.get();
   const nextClosed = [...closed, id];
-  store.set({ closed: nextClosed, doc: doc === id ? pickDoc(docs, nextClosed, null) : doc });
+  store.set({ closed: nextClosed, doc: doc === id ? pickDoc(inProject(docs, project), nextClosed, null) : doc });
 }
 
 // "Delete artwork…" from the tab menu: confirm, delete on the backend, drop the tab.
@@ -182,7 +246,7 @@ async function newDoc() {
   if (ctx.openNewDoc) return ctx.openNewDoc(); // U3's New Document dialog creates the doc itself
   const spec = ctx.dialogs.newDoc ? await ctx.dialogs.newDoc() : { name: "Untitled", w: 1024, h: 1024 };
   if (!spec) return; // cancelled
-  const out = await rpc("doc_new", { name: "Untitled", w: 1024, h: 1024, ...spec }).catch((e) => ({ ok: false, error: e.message }));
+  const out = await rpc("doc_new", { name: "Untitled", w: 1024, h: 1024, project: store.get().project, ...spec }).catch((e) => ({ ok: false, error: e.message }));
   if (out?.ok === false) return store.set({ status: "error", error: out.error });
   await loadDocs();
   const id = out?.id || out?.doc;
@@ -195,8 +259,10 @@ async function openImage() {
   if (!f) return;
   const out = await rpc("open_image", { path: f.path, name: f.name }).catch((e) => ({ ok: false, error: e.message }));
   if (out?.ok === false) return store.set({ status: "error", error: out.error });
+  const id = out?.id || out?.doc, project = store.get().project;
+  if (id && project !== "default") await rpc("doc", { action: "move", doc: id, project }).catch(() => null); // opened images join the open project
   await loadDocs();
-  if (out?.id) store.set({ doc: out.id });
+  if (id) store.set({ doc: id });
 }
 
 // ---- shortcuts ----------------------------------------------------------
@@ -227,6 +293,8 @@ document.addEventListener("click", (ev) => {
   const a = ev.target.closest("[data-act]")?.dataset.act;
   const close = ev.target.closest("[data-doc-close]")?.dataset.docClose;
   const tab = ev.target.closest("[data-doc-tab]")?.dataset.docTab;
+  const proj = ev.target.closest("[data-project-menu]");
+  if (proj) return openProjectMenu(proj);
   if (close) return closeTab(close);
   if (tab) store.set({ doc: tab });
   if (a === "new") newDoc();

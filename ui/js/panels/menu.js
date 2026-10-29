@@ -116,6 +116,7 @@ export function mount(el, ctx) {
   const menus = () => ({
     File: [
       { label: 'New…', shortcut: 'Ctrl+N', run: go('doc.new') },
+      { label: 'New Project…', run: go('project.new') },
       { label: 'Open…', shortcut: 'Ctrl+O', run: go('doc.open') },
       { sep: 1 },
       { label: 'Save', shortcut: 'Ctrl+S', needsDoc: 1, run: go('doc.save') },

@@ -48,6 +48,8 @@ export const STEPS = {
     ['ink', 'js'], ['reload'], ['wait', 2500], ['ink', 'backend']],
   teammate: [['wait', 1500], ['teammate']],
   dockclose: [['wait', 1500], ['dockclose']],
+  projects: [['wait', 1500], ['projects']],
+  strip: [['wait', 1200], ['strip']],
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = [];
@@ -116,6 +118,31 @@ export async function run(name, win) {
         btn.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, button: 0 }));
         const rows = [...doc.querySelectorAll('.tb__fly .tb__item')].map((it) => { const ic = it.querySelectorAll('svg')[1], lb = it.querySelector('span:not(.tb__tick)'); return `${Math.round(ic.getBoundingClientRect().left - it.getBoundingClientRect().left)}/${Math.round(lb.getBoundingClientRect().left - it.getBoundingClientRect().left)}`; });
         log.push(`flyout rows icon-left/label-left px: ${rows.join(' ')}`);
+      }
+      else if (verb === 'projects') { // Projects > Canvases: new project via the menu, a canvas inside it, tabs per project, switch back
+        const A = win.artstudio, tabs = () => [...doc.querySelectorAll('[data-doc-tab]')].map((t) => t.textContent.replace('×', '').trim());
+        const before = tabs();
+        q('[data-project-menu]').click(); await sleep(150);
+        const items = [...doc.querySelectorAll('.dk-menu__item')].map((e) => q('.dk-menu__label', e).textContent);
+        [...doc.querySelectorAll('.dk-menu__item')].find((e) => q('.dk-menu__label', e).textContent === 'New Project…').click(); await sleep(150);
+        const inp = q('.dk-dialog input'); inp.value = 'Testing'; q('.dk-dialog .dk-btn--primary').click(); await sleep(800);
+        const inNew = { name: q('[data-project-name]').textContent, tabs: tabs(), empty: !q('[data-state]').hidden };
+        const out = await A.rpc('doc', { action: 'new', name: 'Test canvas', w: 64, h: 64, project: A.store.get().project });
+        await A.refreshDocs(); A.store.set({ doc: out.doc }); await sleep(600);
+        const withCanvas = tabs();
+        A.projects.switchTo('default'); await sleep(400);
+        log.push(`project menu: ${items.join(' | ')}`);
+        log.push(`start tabs=[${before}] ; after New Project: name=${inNew.name} tabs=[${inNew.tabs}] emptyState=${inNew.empty} ; with canvas: [${withCanvas}] ; back in default: name=${q('[data-project-name]').textContent} tabs=[${tabs()}]`);
+      } else if (verb === 'strip') { // collapsed dock: icons with no background; toolbar buttons never overlap
+        const A = win.artstudio; A.dock.toggleDock(true); await sleep(200);
+        const t = q('[data-dock] [data-tab]'), cs = win.getComputedStyle(t);
+        log.push(`collapsed tab: bg=${cs.backgroundColor} border=${cs.borderTopWidth} size=${Math.round(t.getBoundingClientRect().width)}x${Math.round(t.getBoundingClientRect().height)}`);
+        const bs = [...doc.querySelectorAll('[data-panel="toolbar"] [data-tool]')].map((b) => b.getBoundingClientRect());
+        let hits = 0; for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) { const a = bs[i], b = bs[j]; if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) hits++; }
+        const card = q('.studio__tools').getBoundingClientRect(), out = bs.filter((b) => b.left < card.left || b.right > card.right).length;
+        log.push(`toolbar: ${bs.length} tools, overlapping pairs=${hits}, outside the card=${out}`);
+        const R = (r) => `${Math.round(r.left)}..${Math.round(r.right)}`;
+        log.push(`card ${R(card)} ; toolbar section ${R(q('[data-panel="toolbar"]').getBoundingClientRect())} ; .tb ${R(q('.tb').getBoundingClientRect())} ; grid ${R(q('.tb__grid').getBoundingClientRect())} ; first two tools ${R(bs[0])} ${R(bs[1])} ; well ${R(q('.tb__well').getBoundingClientRect())}`);
       }
       else if (verb === 'reload') await win.artstudio.engine.load(win.artstudio.store.get().doc);
       else if (verb === 'teammate') { // a teammate's stroke arrives over live sync while our own stroke is still being saved

@@ -81,7 +81,8 @@ export async function openNewDoc(ctx) {
   });
   if (!spec) return null;
   const bg = spec.bgKind === 'color' ? spec.color : spec.bgKind;
-  const params = { action: 'new', name: spec.name || 'Untitled', w: spec.w, h: spec.h, bg };
+  // the canvas lands in the project that is open (Projects > Canvases)
+  const params = { action: 'new', name: spec.name || 'Untitled', w: spec.w, h: spec.h, bg, project: ctx.store?.get?.().project || '' };
   const out = await ctx.rpc('doc', params);
   if (out?.ok === false) { ctx.toast?.(out.error || 'Could not create document'); return out; }
   prefs.set('recentDocs', [{ name: params.name, w: params.w, h: params.h }, ...recent.filter((r) => r.w !== params.w || r.h !== params.h)].slice(0, MAX_RECENT));

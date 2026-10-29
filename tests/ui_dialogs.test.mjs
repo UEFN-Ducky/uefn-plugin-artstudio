@@ -56,7 +56,7 @@ assert.deepEqual(orient(1920, 1080, 'portrait'), [1080, 1920]);
   byK('bg').value = 'transparent'; byK('bg').dispatch('change');
   byText('Create').click();
   await p;
-  assert.deepEqual(ctx.calls, [['doc', { action: 'new', name: 'HUD', w: 1920, h: 1080, bg: 'transparent' }]]);
+  assert.deepEqual(ctx.calls, [['doc', { action: 'new', name: 'HUD', w: 1920, h: 1080, bg: 'transparent', project: ctx.store?.get?.().project || '' }]]); // lands in the open project
 }
 
 // --- Canvas Size ---

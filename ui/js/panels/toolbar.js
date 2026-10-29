@@ -49,13 +49,22 @@ export function icon(id, size = 20) {
 }
 
 export const CSS = `
-.tb{display:flex;flex-direction:column;align-items:center;gap:2px;height:100%;box-sizing:border-box;padding:4px;overflow:hidden;background:var(--card);font-family:var(--font-ui);color:var(--fg)}
+.tb{display:flex;flex-direction:column;align-items:center;gap:2px;width:100%;height:100%;box-sizing:border-box;padding:4px 0;overflow:hidden;background:var(--card);font-family:var(--font-ui);color:var(--fg)}
 .tb__sep{align-self:stretch;height:1px;margin:4px 0;background:var(--border)}
 .tb__group{display:flex;flex-direction:column;gap:2px}
-.tb__grid{display:grid;grid-template-columns:repeat(2,28px);gap:2px}
+.tb__grid{display:grid;grid-template-columns:repeat(2,28px);gap:4px 4px;justify-content:center}
 .tb__grid .ps-tool-group{display:contents}
 .tb__grid .ps-tool-separator{grid-column:1/-1;height:1px;margin:3px 0;background:var(--border)}
-.tb__bottom{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:4px}
+.tb__bottom{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+/* Photoshop color well: foreground over background, swap arrow top-right, default colors bottom-left */
+.tb__well{position:relative;width:46px;height:46px;flex:none}
+.tb__well .ps-colors__fg,.tb__well .ps-colors__bg{position:absolute;width:28px;height:28px;padding:0;border:1px solid var(--border);border-radius:4px;cursor:pointer;box-shadow:0 0 0 1px var(--card)}
+.tb__well .ps-colors__fg{left:0;top:0;z-index:2}
+.tb__well .ps-colors__bg{left:16px;top:16px;z-index:1}
+.tb__well .tb__swap,.tb__well .tb__reset{position:absolute;width:14px;height:14px;padding:0;display:flex;align-items:center;justify-content:center;background:none;border:0;color:var(--muted);cursor:pointer}
+.tb__well .tb__swap{right:0;top:0}.tb__well .tb__reset{left:0;bottom:0}
+.tb__well .tb__swap:hover,.tb__well .tb__reset:hover,.tb__screen:hover{color:var(--fg)}
+.tb__screen{width:28px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;background:none;border:0;border-radius:6px;color:var(--muted);cursor:pointer}
 .tb .ps-tool{width:28px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;font-family:inherit;position:relative}
 .tb .ps-tool__more{position:absolute;right:2px;bottom:2px;width:0;height:0;border-left:5px solid transparent;border-bottom:5px solid var(--muted);pointer-events:none}
 .tb__fly{position:fixed;z-index:2000;min-width:200px;padding:4px;background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius,8px);display:flex;flex-direction:column;gap:2px;font-family:var(--font-ui);font-size:12px}
@@ -102,15 +111,14 @@ export function mount(el, ctx) {
         return `<button class="ps-tool${on ? ' active' : ''}" data-tool="${t.id}" aria-pressed="${on}" ${hasVariants(t.id) ? 'aria-haspopup="menu"' : ''} title="${variantName(sid)}${sc ? ` (${sc})` : ''}">${icon(sid)}${hasVariants(t.id) ? '<span class="ps-tool__more" aria-hidden="true"></span>' : ''}</button>`;
       }).join('')}</div>`).join('<div class="ps-tool-separator"></div>')
     }</div><div class="tb__bottom">
-      <div class="ps-colors">
+      <div class="ps-colors tb__well">
         <button class="ps-colors__bg" data-color="background" title="Background color" aria-label="Background color"></button>
         <button class="ps-colors__fg" data-color="foreground" title="Foreground color" aria-label="Foreground color"></button>
+        <button class="tb__swap" data-cmd="color.swap" title="Swap colors (X)" aria-label="Swap colors">${icon('swap', 12)}</button>
+        <button class="tb__reset" data-cmd="color.reset" title="Default colors (D)" aria-label="Default colors">${icon('reset', 11)}</button>
       </div>
-      <div class="tb__mini">
-        <button data-cmd="color.swap" title="Swap colors (X)" aria-label="Swap colors">${icon('swap', 14)}</button>
-        <button data-cmd="color.reset" title="Default colors (D)" aria-label="Default colors">${icon('reset', 14)}</button>
-        <button data-cmd="fullscreen" title="Full screen" aria-label="Full screen">${icon('full', 14)}</button>
-      </div></div></div>`;
+      <button class="tb__screen" data-cmd="fullscreen" title="Full screen (F)" aria-label="Full screen">${icon('full', 16)}</button>
+      </div></div>`;
     paintColors(colors.get());
   }
 

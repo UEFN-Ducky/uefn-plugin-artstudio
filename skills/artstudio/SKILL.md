@@ -13,6 +13,7 @@ Look: `artstudio_preview(doc, output_dir=<chat attachments folder>)`, then `view
 
 ## Doc
 `artstudio_doc(action)`: new|presets|canvas_size|image_size|get|list|delete|ops_since|cost; versions: commit|versions|restore|branch|merge|compare. `artstudio_layer(action)`: add|set|remove|move|merge.
+Projects group canvases (a game, a test bed): `projects` lists them, `project_new(name)`, `project_rename`, `project_delete` (empty only), `move(doc, project)`; `new`/`list` take `project=` (none = "default"). Put a new canvas in the project the person is working in.
 
 ## Draw
 `artstudio_apply(doc, ops[])`, ≤ 200 ops of `{kind, layer, args}`. Kinds: stroke fill shape text image.place retouch gradient clone heal dodge burn sponge smudge blur_brush sharpen_brush filter style transform mask clip note. `artstudio_undo`. `references/drawing-loop.md`.

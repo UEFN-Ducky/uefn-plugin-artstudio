@@ -38,21 +38,85 @@ PRESETS = [  # bg "" = transparent
 ]
 
 
-def _new_action(api, name="Untitled", w=1024, h=1024, bg="#ffffff", preset="", **_):
+def _new_action(api, name="Untitled", w=1024, h=1024, bg="#ffffff", preset="", project="", **_):
     if preset:
         p = next((x for x in PRESETS if x["id"] == preset), None)
         if not p:
             return budget.err(f"unknown preset {preset!r}", [x["id"] for x in PRESETS])
         w, h, bg = p["w"], p["h"], p["bg"]
         name = name if name != "Untitled" else p["name"]
-    return new_doc(api, name, w, h, bg)
+    return new_doc(api, name, w, h, bg, project=project)
+
+
+# ---- projects: a project groups canvases (a game, a test bed); canvases keep their own ops, versions and live sync ----
+DEFAULT_PROJECT = "default"  # canvases made before projects existed (or without one) live here
+_PROJ = "proj."
+
+
+def _project_of(d: dict) -> str:
+    return d.get("project") or DEFAULT_PROJECT
+
+
+def _projects(api) -> dict:
+    return {p["id"]: p for p in api.data.items(_PROJ).values() if isinstance(p, dict) and p.get("id")}
+
+
+def list_projects(api) -> dict:
+    projs, counts = _projects(api), {}
+    for d in api.data.items("doc.").values():
+        if isinstance(d, dict) and d.get("id"):
+            counts[_project_of(d)] = counts.get(_project_of(d), 0) + 1
+    if DEFAULT_PROJECT not in projs and (counts.get(DEFAULT_PROJECT) or not projs):
+        projs[DEFAULT_PROJECT] = {"id": DEFAULT_PROJECT, "name": "My Project"}
+    rows = [{"id": p["id"], "name": p.get("name") or p["id"], "canvases": counts.get(p["id"], 0)} for p in projs.values()]
+    return {"ok": True, "projects": sorted(rows, key=lambda r: (r["id"] != DEFAULT_PROJECT, str(r["name"]).lower()))}
+
+
+def project_new(api, name: str = "") -> dict:
+    pid = "p" + uuid.uuid4().hex[:6]
+    name = (name or "").strip()
+    api.data.put(_PROJ + pid, {"id": pid, "name": name if name and name != "Untitled" else "Untitled project"})
+    return {"ok": True, "project": pid, "name": api.data.get(_PROJ + pid)["name"]}
+
+
+def project_rename(api, project: str, name: str) -> dict:
+    if project != DEFAULT_PROJECT and project not in _projects(api):
+        return {"ok": False, "error": f"no project {project!r}"}
+    if not (name or "").strip():
+        return {"ok": False, "error": "name is empty"}
+    api.data.put(_PROJ + project, {"id": project, "name": name.strip()})
+    return {"ok": True, "project": project, "name": name.strip()}
+
+
+def project_delete(api, project: str) -> dict:
+    """Only an empty project goes: its canvases (and their history) are never deleted with it."""
+    n = sum(1 for d in api.data.items("doc.").values() if isinstance(d, dict) and d.get("id") and _project_of(d) == project)
+    if n:
+        return {"ok": False, "error": f"project has {n} canvas(es): move or delete them first"}
+    api.data.delete(_PROJ + project)
+    return {"ok": True, "project": project}
+
+
+def move_doc(api, doc_id: str, project: str) -> dict:
+    d = _doc(api, doc_id)
+    if not d:
+        return {"ok": False, "error": f"no doc {doc_id!r}"}
+    if project != DEFAULT_PROJECT and project not in _projects(api):
+        return {"ok": False, "error": f"no project {project!r}"}
+    api.data.put(contracts.doc_key(doc_id), {**d, "project": project})
+    return {"ok": True, "doc": doc_id, "project": project}
 
 
 register_action("new", _new_action)
 register_action("presets", lambda api, **_: {"ok": True, "presets": PRESETS})
 register_action("get", lambda api, doc="", **_: get_doc(api, doc))
-register_action("list", lambda api, query="", **_: list_docs(api, query))
+register_action("list", lambda api, query="", project="", **_: list_docs(api, query, project))
 register_action("delete", lambda api, doc="", **_: delete_doc(api, doc))
+register_action("projects", lambda api, **_: list_projects(api))
+register_action("project_new", lambda api, name="", **_: project_new(api, name))
+register_action("project_rename", lambda api, project="", name="", **_: project_rename(api, project, name))
+register_action("project_delete", lambda api, project="", **_: project_delete(api, project))
+register_action("move", lambda api, doc="", project="", **_: move_doc(api, doc, project or DEFAULT_PROJECT))
 register_action("ops_since", lambda api, doc="", rev=0, limit=100, **_: ops.ops_since(api, doc, rev, limit))
 register_action("cost", lambda api, doc="", **_: {"ok": True, **budget.meter.summary(doc or None)})
 
@@ -73,11 +137,13 @@ def _layer(doc: dict, lid: str):
     return next(((i, x) for i, x in enumerate(doc["layers"]) if x["id"] == lid), (None, None))
 
 
-def new_doc(api, name: str = "Untitled", w: int = 1024, h: int = 1024, bg: str = "#ffffff", by=None) -> dict:
+def new_doc(api, name: str = "Untitled", w: int = 1024, h: int = 1024, bg: str = "#ffffff", by=None,
+            project: str = "") -> dict:
     w, h = max(1, min(int(w), MAX_SIDE)), max(1, min(int(h), MAX_SIDE))
     did = uuid.uuid4().hex[:6]
     api.data.put(contracts.doc_key(did), {"id": did, "name": name or "Untitled", "w": w, "h": h, "rev": 0,
-                                          "checkpoint_rev": 0, "seq": 0, "layers": []})
+                                          "checkpoint_rev": 0, "seq": 0, "layers": [],
+                                          "project": project or DEFAULT_PROJECT})
     res = ops.append(api, did, {"kind": "layer.add", "by": by, "args": {"name": "Background"}})
     if res["ok"] and bg:
         res = ops.append(api, did, {"kind": "fill", "layer": "L1", "by": by, "args": {"all": True, "color": bg}})
@@ -92,13 +158,17 @@ def get_doc(api, doc_id: str) -> dict:
     d = _doc(api, doc_id)
     if not d:
         return {"ok": False, "error": f"no doc {doc_id!r}"}
-    return {"ok": True, **{k: d[k] for k in ("id", "name", "w", "h", "rev", "checkpoint_rev", "layers")}}
+    return {"ok": True, **{k: d[k] for k in ("id", "name", "w", "h", "rev", "checkpoint_rev", "layers")},
+            "project": _project_of(d)}
 
 
-def list_docs(api, query: str = "") -> dict:
+def list_docs(api, query: str = "", project: str = "") -> dict:
+    """Canvases matching query; project="" = every project (each row says its project)."""
     q = (query or "").lower()
-    rows = [{k: d.get(k) for k in ("id", "name", "w", "h", "rev")} for d in api.data.items("doc.").values()
-            if q in str(d.get("name", "")).lower() or q in str(d.get("id", ""))]
+    rows = [{**{k: d.get(k) for k in ("id", "name", "w", "h", "rev")}, "project": _project_of(d)}
+            for d in api.data.items("doc.").values()
+            if (q in str(d.get("name", "")).lower() or q in str(d.get("id", "")))
+            and (not project or _project_of(d) == project)]
     return {"ok": True, "docs": sorted(rows, key=lambda r: str(r["name"]).lower())}
 
 
@@ -288,12 +358,12 @@ def register(api) -> None:
 
     def artstudio_doc(action: str, doc: str = "", query: str = "", name: str = "Untitled", w: int = 1024,
                       h: int = 1024, bg: str = "#ffffff", rev: int = 0, limit: int = 100,
-                      args: dict | None = None) -> dict:
-        """Artwork docs: action new|get|list|delete|ops_since|cost (+ version actions); doc is the id.
+                      args: dict | None = None, project: str = "") -> dict:
+        """Canvases: new|get|list|delete|move|ops_since|cost, projects|project_new|_rename|_delete; doc=id.
 
-        raster (args layers?, max_px?, since_rev?) is panel use; AIs use preview."""
+        project groups canvases (new/list/move take it; none = "default"). raster is panel use; AIs use preview."""
         a = {"doc": doc, "query": query, "name": name, "w": w, "h": h, "bg": bg, "rev": rev, "limit": limit,
-             **(args or {})}
+             "project": project, **(args or {})}
         fn = ACTIONS.get(action)
         if not fn:
             return budget.err(f"unknown action {action!r}", sorted(ACTIONS))

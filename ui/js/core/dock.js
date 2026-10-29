@@ -198,7 +198,7 @@ export function mountDock(root, { prefs, bus } = {}) {
       const tabs = [...g.querySelectorAll("[data-tab]")];
       const tab = tabs.some((t) => t.dataset.tab === gs.tab) ? gs.tab : tabs[0]?.dataset.tab;
       g.classList.toggle("is-collapsed", !!gs.collapsed);
-      g.style.flex = gs.collapsed ? "none" : `${gs.weight || defaultWeight(id)} 1 0`;
+      g.style.flex = gs.collapsed || state.collapsed ? "none" : `${gs.weight || defaultWeight(id)} 1 0`; // icon strip: groups stack tight
       tabs.forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === tab)));
       g.querySelectorAll("[data-tab-body]").forEach((b) => {
         const isFly = state.collapsed && fly?.id === id && fly.tab === b.dataset.tabBody;

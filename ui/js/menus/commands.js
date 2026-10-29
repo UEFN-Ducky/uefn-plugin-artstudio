@@ -265,6 +265,7 @@ export const COMMANDS = {
   undo,
   redo,
   "doc.info": docInfo,
+  "project.new": (ctx) => (ctx.projects ? ctx.projects.create() : na(ctx, "New Project")),
   "edit.stepBackward": alias("undo"),
   "edit.cut": cut, "edit.copy": copy, paste,
   // selection + view (engine owns the core ones)
