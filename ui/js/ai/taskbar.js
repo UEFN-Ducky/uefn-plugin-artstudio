@@ -1,15 +1,19 @@
-// AI prompt bar: fixed at the bottom of the stage. [agent ▾] [prompt] [Send] [status / Stop].
+// AI prompt bar: fixed at the bottom of the stage. [agent ▾] [prompt] [Send] [status] [✕].
+// Above it a pull-up chat: one line (what the agent is doing + time) that expands into the agent's real conversation.
 // The picked Ducky agent drives the program; ✕ folds the bar into a "✦ AI" pill at the bottom right.
 import { promptText } from './ai-actions.js';
 
 const PREF = 'aibar';
 export const NEW_AGENT = '__new';
 export const SELECTION_HINT = 'edit only inside the selection';
+const MAX_WORK_MS = 15 * 60 * 1000; // ponytail: no host "busy" flag; after 15 min without a reply the line stops counting
 
 // Pure: picker entries. '' = the artwork's own agent (default), then known Ducky chats, then "+ New agent…".
-export function agentOptions(agents = []) {
+// A picked agent missing from the list (still loading, or renamed) stays selectable instead of blanking the picker.
+export function agentOptions(agents = [], current = '') {
   const known = (agents || []).filter((a) => a && a.id).map((a) => ({ id: String(a.id), label: a.label || a.name || String(a.id) }));
-  return [{ id: '', label: 'Artwork agent' }, ...known, { id: NEW_AGENT, label: '+ New agent…' }];
+  const keep = current && current !== NEW_AGENT && !known.some((a) => a.id === current) ? [{ id: current, label: 'Chosen agent' }] : [];
+  return [{ id: '', label: 'Artwork agent' }, ...known, ...keep, { id: NEW_AGENT, label: '+ New agent…' }];
 }
 
 // Pure: the `chat send` params. context = selection box, active layer, tool (+ hint when a selection exists).
@@ -22,33 +26,48 @@ export function sendParams({ doc, text, agent, selection, layer, tool }) {
   return p;
 }
 
+export const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const firstLine = (t) => String(t || '').replace(/[*_`#>]/g, '').split('\n').map((l) => l.trim()).find(Boolean) || '';
+
 // Pure: what the DOM draws.
-export function barModel({ collapsed, agent, agents, status }) {
+export function barModel({ collapsed, agent, agents, status, thread = [], expanded = false, chatWorking = false, sentAt = 0, doneMs = 0, edits = 0, now = Date.now() }) {
+  const last = [...thread].reverse().find((m) => m.role === 'assistant');
+  const line = chatWorking
+    ? `Working${edits ? ` · ${edits} edit${edits === 1 ? '' : 's'}` : ''}`
+    : last ? firstLine(last.text) : 'Ask the agent to edit this artwork';
   return {
     collapsed: !!collapsed,
     agent: agent || '',
-    options: agentOptions(agents),
+    options: agentOptions(agents, agent),
     working: status === 'working',
     status: status === 'working' ? 'working' : 'idle',
+    thread,
+    expanded: !!expanded,
+    chat: { show: chatWorking || thread.length > 0, working: !!chatWorking, line, time: chatWorking ? clock(now - sentAt) : doneMs ? `took ${clock(doneMs)}` : '' },
   };
 }
 
-// Controller. rpc, getDoc(), getTool() come from the shell; prefs persists collapsed + agent.
+// Controller. rpc, getDoc(), getTool() come from the shell; prefs persists collapsed + agent + expanded + cleared.
 // update(ctx) is the shell's refresh: ctx.selection (box|null), ctx.layer, ctx.ai ('working'|'idle') are remembered.
-export function createTaskbar({ render, prefs, rpc, getDoc = () => '', getTool = () => '' }) {
+export function createTaskbar({ render, prefs, rpc, getDoc = () => '', getTool = () => '', now = () => Date.now() }) {
   const saved = prefs?.get(PREF) || {};
-  const s = { collapsed: !!saved.collapsed, agent: saved.agent || '', agents: [], ctx: {}, sending: false };
-  const save = () => prefs?.set(PREF, { collapsed: s.collapsed, agent: s.agent });
-  const model = () => barModel({ ...s, status: s.sending || s.ctx.ai === 'working' ? 'working' : 'idle' });
+  const s = { collapsed: !!saved.collapsed, agent: saved.agent || '', expanded: !!saved.expanded, cleared: saved.cleared || {},
+    agents: [], ctx: {}, sending: false, thread: [], conv: '', chatWorking: false, sentAt: 0, doneMs: 0, edits: 0 };
+  const save = () => prefs?.set(PREF, { collapsed: s.collapsed, agent: s.agent, expanded: s.expanded, cleared: s.cleared });
+  const visible = () => s.thread.filter((m) => (m.i ?? 0) >= (s.cleared[s.conv] || 0));
+  const model = () => barModel({ ...s, thread: visible(), now: now(), status: s.sending || s.ctx.ai === 'working' || s.chatWorking ? 'working' : 'idle' });
   const draw = () => { const m = model(); render(m, api); return m; };
   const api = {
-    get state() { return { collapsed: s.collapsed, agent: s.agent }; },
+    get state() { return { collapsed: s.collapsed, agent: s.agent, expanded: s.expanded, conv: s.conv, working: s.chatWorking }; },
     update(ctx = {}) { s.ctx = { ...s.ctx, ...ctx }; return draw(); },
     collapse(on = true) { s.collapsed = !!on; save(); return draw(); },
-    pick(id) { s.agent = id || ''; save(); return draw(); },
+    expand(on = !s.expanded) { s.expanded = !!on; save(); return draw(); },
+    pick(id) { s.agent = id || ''; s.thread = []; s.conv = ''; save(); draw(); return api.poll(); },
+    noteEdit() { if (s.chatWorking) { s.edits++; draw(); } },
+    tick() { if (s.chatWorking) draw(); },
     async loadAgents() {
       try {
-        const out = await rpc('chat', { action: 'agents' });
+        const out = await rpc('chat', { action: 'agents', doc: getDoc() });
         s.agents = out?.agents || out?.items || [];
       } catch { s.agents = []; }
       return draw();
@@ -59,37 +78,76 @@ export function createTaskbar({ render, prefs, rpc, getDoc = () => '', getTool =
       s.sending = true; draw();
       try {
         const out = await rpc('chat', sendParams({ doc: getDoc(), text: t, agent: s.agent, selection: s.ctx.selection, layer: s.ctx.layer?.id ?? s.ctx.layer, tool: getTool() }));
-        if (s.agent === NEW_AGENT && out?.conv_id) { s.agent = out.conv_id; save(); }
+        if (out?.ok !== false) {
+          if (s.agent === NEW_AGENT && out?.conv_id) s.agent = out.conv_id;
+          else if (out?.note && s.agent) s.agent = ''; // the chosen chat was gone or refused: the artwork agent took it
+          s.conv = out?.conv_id || s.conv;
+          Object.assign(s, { chatWorking: true, sentAt: now(), doneMs: 0, edits: 0 });
+          save();
+          api.poll();
+        }
         return out || { ok: true };
       } catch (e) {
         return { ok: false, error: e.message };
       } finally { s.sending = false; draw(); }
     },
+    // Read the agent's chat (free: no model call). Working ends when a reply newer than the prompt arrives.
+    async poll() {
+      const doc = getDoc();
+      if (!doc) return draw();
+      const conv = s.conv || (s.agent && s.agent !== NEW_AGENT ? s.agent : '');
+      const out = await rpc('chat', { action: 'read', doc, conv_id: conv, since: 0, full: true }).catch(() => null);
+      if (out?.gone) { s.thread = []; s.conv = ''; if (s.agent && s.agent !== NEW_AGENT) s.agent = ''; s.chatWorking = false; save(); return draw(); }
+      if (!out?.ok) return draw();
+      s.thread = out.messages || []; s.conv = out.conv_id || conv;
+      if (s.chatWorking) {
+        const replied = s.thread.some((m) => m.role === 'assistant' && (m.ts || 0) * 1000 >= s.sentAt - 2000);
+        if (replied || now() - s.sentAt > MAX_WORK_MS) { s.chatWorking = false; s.doneMs = now() - s.sentAt; }
+      }
+      return draw();
+    },
+    clear() { const top = s.thread.at(-1); if (top) { s.cleared[s.conv] = (top.i ?? s.thread.length - 1) + 1; save(); } return draw(); },
+    async openChat() { return rpc('chat', { action: 'open', doc: getDoc(), conv_id: s.conv || '' }).catch((e) => ({ ok: false, error: e.message })); },
     async stop() {
       const out = await rpc('chat', { action: 'stop', doc: getDoc(), ...(s.agent && s.agent !== NEW_AGENT ? { conv_id: s.agent } : {}) }).catch((e) => ({ ok: false, error: e.message }));
-      s.sending = false; draw();
+      s.sending = false; if (s.chatWorking) { s.chatWorking = false; s.doneMs = now() - s.sentAt; } draw();
       return out;
     },
   };
   return api;
 }
 
-// DOM: one fixed bar plus the collapsed pill under `root`.
+// DOM: the bar (pull-up chat + prompt row) plus the collapsed pill under `root`.
 export function mountTaskbar(root, { prefs, rpc, getDoc, getTool, toast }) {
   const d = root.ownerDocument;
   const w = d.defaultView?.artstudio;
   const mk = (tag, cls, text) => { const n = d.createElement(tag); n.className = cls; if (text != null) n.textContent = text; return n; };
+  const ico = (cls, text, title) => { const b = mk('button', `ai-ico ${cls}`, text); b.type = 'button'; b.title = title; b.setAttribute('aria-label', title); return b; };
   const bar = mk('div', 'ai-bar'); bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'AI prompt bar');
   const pill = mk('button', 'ai-pill', '✦ AI'); pill.type = 'button';
+  // pull-up chat: head line + thread
+  const chat = mk('div', 'ai-chat');
+  const head = mk('div', 'ai-chat-head');
+  const dot = mk('span', 'ai-dot'), line = mk('span', 'ai-chat-line'), time = mk('span', 'ai-chat-time');
+  const exp = ico('ai-chat-expand', '▴', 'Show the conversation');
+  const openB = ico('ai-chat-open', '↗', 'Open this chat in Ducky');
+  const clearB = ico('ai-chat-clear', '⌫', 'Clear this view (the chat itself is kept)');
+  const stop = ico('ai-bar-stop', '■', 'Stop the agent');
+  head.append(dot, line, time, exp, openB, clearB, stop);
+  const thread = mk('div', 'ai-chat-thread'); thread.setAttribute('role', 'log'); thread.setAttribute('aria-live', 'polite');
+  chat.append(head, thread);
+  // prompt row
+  const row = mk('div', 'ai-bar-row');
   const picker = mk('select', 'ai-bar-agent'); picker.setAttribute('aria-label', 'Agent');
   const input = mk('input', 'ai-bar-prompt'); input.placeholder = 'Ask the agent to edit this artwork…';
   const send = mk('button', 'ai-bar-send', 'Send'); send.type = 'button';
   const status = mk('span', 'ai-bar-status');
-  const stop = mk('button', 'ai-bar-stop', 'Stop'); stop.type = 'button';
   const close = mk('button', 'ai-bar-close', '✕'); close.type = 'button'; close.title = 'Hide AI bar';
-  bar.append(picker, input, send, status, stop, close);
+  row.append(picker, input, send, status, close);
+  bar.append(chat, row);
   root.append(bar, pill);
 
+  let shown = 0; // messages drawn, so the thread only re-renders (and scrolls) when something new came
   const tb = createTaskbar({
     prefs, rpc: rpc || w?.rpc,
     getDoc: getDoc || (() => w?.store?.get('doc') || ''),
@@ -100,23 +158,48 @@ export function mountTaskbar(root, { prefs, rpc, getDoc, getTool, toast }) {
       picker.value = m.agent;
       status.textContent = m.working ? '● working' : '● idle';
       status.dataset.state = m.status;
-      stop.hidden = !m.working; send.disabled = m.working;
+      send.disabled = m.working && !m.chat.working; // a running agent can take a follow-up
+      chat.hidden = !m.chat.show;
+      chat.dataset.expanded = String(m.expanded);
+      dot.dataset.state = m.chat.working ? 'working' : 'idle';
+      line.textContent = m.chat.line; time.textContent = m.chat.time;
+      exp.textContent = m.expanded ? '▾' : '▴';
+      exp.title = m.expanded ? 'Collapse to one line' : 'Show the conversation';
+      stop.hidden = !m.working;
+      thread.hidden = !m.expanded;
+      if (m.thread.length !== shown || !thread.children.length) {
+        shown = m.thread.length;
+        thread.replaceChildren(...m.thread.map((t) => mk('div', `ai-msg ai-msg--${t.role === 'user' ? 'user' : 'agent'}`, t.text)));
+        thread.scrollTop = thread.scrollHeight;
+      }
     },
   });
+  const say = toast || w?.toast;
   const go = async () => {
     const text = input.value;
     const out = await tb.send(text);
-    if (out?.ok === false) (toast || w?.toast)?.(out.error || 'Send failed'); else input.value = '';
+    if (out?.ok === false) say?.(out.error || 'Send failed');
+    else { input.value = ''; if (out?.note) say?.(out.note, 'ok'); }
   };
   send.addEventListener('click', go);
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
   stop.addEventListener('click', () => tb.stop());
+  exp.addEventListener('click', () => { tb.expand(); if (tb.state.expanded) tb.poll(); });
+  line.addEventListener('click', () => { tb.expand(); if (tb.state.expanded) tb.poll(); });
+  openB.addEventListener('click', async () => { const r = await tb.openChat(); if (r?.ok === false) say?.(r.error || 'Could not open the chat'); });
+  clearB.addEventListener('click', () => tb.clear());
   close.addEventListener('click', () => tb.collapse(true));
   pill.addEventListener('click', () => tb.collapse(false));
   picker.addEventListener('change', () => tb.pick(picker.value));
   picker.addEventListener('focus', () => tb.loadAgents());
   w?.bus?.on?.('status', ({ ai }) => { if (ai) tb.update({ ai }); }); // Watch AI / progress drive idle|working
+  w?.bus?.on?.('doc.rev', () => tb.noteEdit()); // each new op while the agent works counts as an edit
+  w?.bus?.on?.('doc', () => tb.pick(tb.state.agent)); // another artwork: its own agent's chat
+  const win = d.defaultView;
+  win?.setInterval?.(() => tb.tick(), 1000); // the working timer
+  win?.setInterval?.(() => { if (!bar.hidden && (tb.state.working || tb.state.expanded) && d.visibilityState !== 'hidden') tb.poll(); }, 2000);
   tb.update({});
   tb.loadAgents();
+  tb.poll();
   return tb;
 }

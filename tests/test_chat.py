@@ -110,6 +110,30 @@ def test_refused_send_falls_back_to_own_agent():
     assert api.store["chat.d1"]["conv_id"] == "own1"
 
 
+def test_deleted_chat_falls_back_and_read_full_thread():
+    api = FakeApi()
+    api.store["chat.d1"] = {"name": "Art Studio · d1", "conv_id": "gone1", "doc": "d1"}
+
+    def tool(n, a=None):
+        if n == "ducky_create_chat":
+            return {"conv_id": "fresh1"}
+        if a and a.get("conv_id") == "gone1":
+            raise ValueError("Error executing tool ducky_send_chat_message: Conversation not found: 'gone1'")
+        if n == "ducky_read_chat":
+            return {"messages": [{"role": "user", "content": "[Art Studio] doc: d1\nrules\n\ndraw a cat", "ts": 1},
+                                 {"role": "assistant", "content": "Drew the cat on L2.", "ts": 2}]}
+        return {}
+
+    api.call_tool = tool
+    r = chat.chat_send(api, "d1", "draw a cat")  # the artwork's saved chat was deleted: no error, a new agent
+    assert r["ok"] and r["conv_id"] == "fresh1" and "no longer exists" in r["note"]
+    out = chat.chat_read(api, "d1", full=True)
+    assert [(m["role"], m["text"]) for m in out["messages"]] == [("user", "draw a cat"), ("assistant", "Drew the cat on L2.")]
+    api.store["chat.d1"]["conv_id"] = "gone1"
+    gone = chat.chat_read(api, "d1", full=True)
+    assert gone["ok"] is False and gone["gone"]
+
+
 if __name__ == "__main__":
     test_refused_send_falls_back_to_own_agent()
     test_agents_merges_doc_chat_and_list()

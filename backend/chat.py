@@ -116,7 +116,10 @@ def chat_send(api, doc, text, model="", attach=None, conv_id="", new_agent=False
                 "model": model, "doc": doc}
 
     def deliver(cid):
-        sent = api.call_tool("ducky_send_chat_message", {"conv_id": cid, "message": msg, "wait_for_reply": False})
+        try:
+            sent = api.call_tool("ducky_send_chat_message", {"conv_id": cid, "message": msg, "wait_for_reply": False})
+        except Exception as e:  # noqa: BLE001  the host raises for a chat that is gone ("Conversation not found")
+            return False, str(e)[:200]
         refused = isinstance(sent, dict) and (sent.get("ok") is False or sent.get("status") in ("not_sent", "error", "refused"))
         return (not refused), (str(sent.get("reason") or sent.get("error") or "message not sent")[:200] if refused else "")
 
@@ -134,7 +137,9 @@ def chat_send(api, doc, text, model="", attach=None, conv_id="", new_agent=False
         # The chosen chat refused the message: hand it to this artwork's own standalone agent instead.
         rec, first = standalone(), True
         ok, why2 = deliver(rec["conv_id"])
-        note = f"Sent to a new artwork agent; the chosen chat refused it ({why[:80]})."
+        gone = "not found" in why.lower()
+        note = ("Sent to a new artwork agent; the old chat no longer exists." if gone
+                else f"Sent to a new artwork agent; the chosen chat refused it ({why[:80]}).")
         why = why2
     if not ok:
         return {"ok": False, "conv_id": rec["conv_id"], "error": why}
@@ -157,14 +162,27 @@ def chat_stop(api, doc, conv_id=""):
     return {"ok": True}
 
 
-def chat_read(api, doc, since=0):
-    """New non-user messages after message index `since`."""
-    rec = api.data.get(f"chat.{doc}")
-    if not rec:
+def _shown(text: str) -> str:
+    """What a person typed: drop the [Art Studio] context header chat_send puts in front of the prompt."""
+    return text.split("\n\n", 1)[1] if text.startswith("[Art Studio]") and "\n\n" in text else text
+
+
+def chat_read(api, doc, since=0, conv_id="", full=False):
+    """Messages after index `since` of the artwork's chat (or conv_id). full: both sides, with ts (the AI bar's thread)."""
+    cid = conv_id or (api.data.get(f"chat.{doc}") or {}).get("conv_id")
+    if not cid:
         return {"ok": True, "messages": [], "next": 0}
-    msgs = api.call_tool("ducky_read_chat", {"conv_id": rec["conv_id"]}).get("messages") or []
-    new = [{"role": m.get("role"), "text": _text(m)} for m in msgs[since:] if m.get("role") != "user"]
-    return {"ok": True, "messages": new, "next": len(msgs), "conv_id": rec["conv_id"]}
+    try:
+        msgs = (api.call_tool("ducky_read_chat", {"conv_id": cid}) or {}).get("messages") or []
+    except Exception as e:  # noqa: BLE001  a deleted chat: the bar falls back to the artwork agent
+        return {"ok": False, "error": str(e)[:200], "gone": "not found" in str(e).lower(), "conv_id": cid}
+    if not full:
+        new = [{"role": m.get("role"), "text": _text(m)} for m in msgs[since:] if m.get("role") != "user"]
+        return {"ok": True, "messages": new, "next": len(msgs), "conv_id": cid}
+    # ponytail: the newest 40, each cut to 1500 chars; the full chat is one click away (Open in Ducky)
+    rows = [{"i": i, "role": m.get("role"), "text": _shown(_text(m))[:1500], "ts": m.get("ts")}
+            for i, m in enumerate(msgs) if i >= since and m.get("role") in ("user", "assistant")]
+    return {"ok": True, "messages": rows[-40:], "next": len(msgs), "conv_id": cid}
 
 
 def open_chat(api, conv_id):
@@ -184,7 +202,7 @@ def register(api):
         reg("artstudio_fix_loop", FIX_BRIEF)
 
     def chat_action(action="send", doc="", text="", model="", attach=None, since=0, conv_id="",
-                    new_agent=False, context=None):
+                    new_agent=False, context=None, full=False):
         if action == "send":
             return chat_send(api, doc, text, model, attach, conv_id, new_agent, context)
         if action == "agents":
@@ -192,7 +210,7 @@ def register(api):
         if action == "stop":
             return chat_stop(api, doc, conv_id)
         if action == "read":
-            return chat_read(api, doc, since)
+            return chat_read(api, doc, since, conv_id, full)
         if action == "open":
             rec = api.data.get(f"chat.{doc}") or {}
             return open_chat(api, conv_id or rec.get("conv_id", ""))

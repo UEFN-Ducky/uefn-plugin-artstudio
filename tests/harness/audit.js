@@ -50,6 +50,7 @@ export const STEPS = {
   dockclose: [['wait', 1500], ['dockclose']],
   projects: [['wait', 1500], ['projects']],
   strip: [['wait', 1200], ['strip']],
+  aichat: [['wait', 1200], ['aichat']],
   toolpop: [['wait', 1200], ['key', 'b'], ['ctx', '[data-panel="canvas"] canvas'], ['wait', 300], ['toolpop']],
   toolpopfill: [['wait', 1200], ['key', 'g'], ['ctx', '[data-panel="canvas"] canvas'], ['wait', 300], ['toolpop']],
 };
@@ -145,6 +146,32 @@ export async function run(name, win) {
         log.push(`toolbar: ${bs.length} tools, overlapping pairs=${hits}, outside the card=${out}`);
         const R = (r) => `${Math.round(r.left)}..${Math.round(r.right)}`;
         log.push(`card ${R(card)} ; toolbar section ${R(q('[data-panel="toolbar"]').getBoundingClientRect())} ; .tb ${R(q('.tb').getBoundingClientRect())} ; grid ${R(q('.tb__grid').getBoundingClientRect())} ; first two tools ${R(bs[0])} ${R(bs[1])} ; well ${R(q('.tb__well').getBoundingClientRect())}`);
+      }
+      else if (verb === 'aichat') { // AI bar pull-up chat with a stubbed agent (no model call): working line, reply, expand
+        const thread = []; let t0 = 0;
+        const real = globalThis.fetch.bind(globalThis);
+        globalThis.fetch = (u, o) => {
+          try {
+            const b = JSON.parse(o?.body || 'null');
+            if (b?.method === 'chat') {
+              const p = b.params || {}, now = Date.now() / 1000;
+              if (p.action === 'send') { t0 = now; thread.push({ i: thread.length, role: 'user', text: p.text, ts: now }); }
+              if (p.action === 'read' && t0 && now - t0 > 3 && thread.length === 1) {
+                thread.push({ i: 1, role: 'assistant', text: 'Drew a red ribbon across the top on a new layer "Ribbon" (rev 9) and checked it with a preview.\nUndo with Ctrl+Z if you want it gone.', ts: now });
+              }
+              const out = p.action === 'agents' ? { ok: true, agents: [{ id: 'a1', label: 'Art Studio · demo' }] } : p.action === 'read' ? { ok: true, conv_id: 'a1', messages: thread } : { ok: true, conv_id: 'a1' };
+              return Promise.resolve(new Response(JSON.stringify(out)));
+            }
+          } catch { /* not json */ }
+          return real(u, o);
+        };
+        const inp = q('.ai-bar-prompt'); inp.value = 'add a red ribbon across the top'; q('.ai-bar-send').click();
+        await sleep(2200);
+        log.push(`while working: line="${q('.ai-chat-line').textContent}" time="${q('.ai-chat-time').textContent}" dot=${q('.ai-dot').dataset.state} stopShown=${!q('.ai-bar-stop').hidden}`);
+        await sleep(3500);
+        log.push(`after reply: line="${q('.ai-chat-line').textContent}" time="${q('.ai-chat-time').textContent}" dot=${q('.ai-dot').dataset.state}`);
+        q('.ai-chat-expand').click(); await sleep(2500);
+        log.push(`expanded: bubbles=${doc.querySelectorAll('.ai-msg').length} roles=${[...doc.querySelectorAll('.ai-msg')].map((m) => m.className.split('--')[1]).join(',')} picker="${q('.ai-bar-agent').selectedOptions[0]?.textContent}"`);
       }
       else if (verb === 'toolpop') { // right-click tool options: sliders / tiles / chips / toggles only, a preset tile sets size
         const pop = [...doc.querySelectorAll('.dk-popover')].at(-1);
