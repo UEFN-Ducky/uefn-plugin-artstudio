@@ -345,8 +345,9 @@ export const COMMANDS = {
   "panel.collapse": dockCmd((d, a) => d.toggleGroup(a.group), "Collapse Panel"),
   "panel.close": dockCmd((d, a) => d.toggleGroup(a.group), "Close Panel"),
   "ui.togglePanels": dockCmd((d) => d.toggleDock(), "Toggle panels"),
-  "window.toggle": dockCmd((d, a) => d.revealPanel(a.panel), "Window panel"),
+  "window.toggle": dockCmd((d, a) => (d.togglePanel ? d.togglePanel(a.panel) : d.revealPanel(a.panel)), "Window panel"),
   "window.reset": dockCmd((d) => {
+    if (d.reset) return d.reset();
     for (const [id, g] of Object.entries(d.state.groups)) if (g.collapsed) d.toggleGroup(id);
     d.toggleDock(false);
     d.setWidth(300);

@@ -177,6 +177,16 @@ export function mountDock(root, { prefs, bus } = {}) {
   }
   state.last = saved.last;
 
+  // Every group header ends with ✕: close the panel group; Window > <panel> brings it back.
+  for (const g of groups) {
+    const nav = g.querySelector?.(".studio__tabs");
+    if (!nav || nav.querySelector?.("[data-group-close]") || !root.ownerDocument?.createElement) continue;
+    const b = root.ownerDocument.createElement("button");
+    b.className = "dk-btn studio__gclose"; b.dataset.groupClose = ""; b.textContent = "✕";
+    b.title = "Close panel (reopen from the Window menu)"; b.setAttribute("aria-label", `Close ${nav.getAttribute("aria-label") || g.dataset.dockGroup} panel`);
+    nav.append(b);
+  }
+
   const save = () => prefs?.set?.("dock", state);
   const apply = () => {
     root.classList.toggle("is-collapsed", state.collapsed);
@@ -184,6 +194,7 @@ export function mountDock(root, { prefs, bus } = {}) {
     for (const g of groups) {
       const id = g.dataset.dockGroup;
       const gs = state.groups[id] || (state.groups[id] = {});
+      g.hidden = !!gs.hidden;
       const tabs = [...g.querySelectorAll("[data-tab]")];
       const tab = tabs.some((t) => t.dataset.tab === gs.tab) ? gs.tab : tabs[0]?.dataset.tab;
       g.classList.toggle("is-collapsed", !!gs.collapsed);
@@ -199,10 +210,30 @@ export function mountDock(root, { prefs, bus } = {}) {
     }
   };
   const groupEl = (id) => groups.find((g) => g.dataset.dockGroup === id);
+  // Window menu names ("watch-ai") match a tab id ("watchai") rather than its mount ("watch").
+  const bodyOf = (panel) => root.querySelector(`[data-panel="${panel}"]`)?.closest("[data-tab-body]")
+    || root.querySelector(`[data-tab-body="${String(panel).replace(/-/g, "")}"]`);
 
   const api = {
     state,
-    showTab(id, tab) { (state.groups[id] ||= {}).tab = tab; state.groups[id].collapsed = false; state.last = id; apply(); save(); },
+    showTab(id, tab) { (state.groups[id] ||= {}).tab = tab; state.groups[id].collapsed = false; state.groups[id].hidden = false; state.last = id; apply(); save(); },
+    // Window > Reset Workspace: the first-run layout (Layers + History open, the rest collapsed, nothing closed).
+    reset() {
+      for (const g of groups) { const id = g.dataset.dockGroup; state.groups[id] = { collapsed: id !== "layers" && id !== "history" }; }
+      state.collapsed = false; state.width = 300; fly = null; apply(); save();
+    },
+    closeGroup(id) { (state.groups[id] ||= {}).hidden = true; if (fly?.id === id) fly = null; apply(); save(); },
+    // Window menu: is this panel's tab open right now (group shown, expanded, that tab selected)?
+    isShown(panel) {
+      const body = bodyOf(panel), g = body && groups.find((x) => x.contains(body)), gs = g && state.groups[g.dataset.dockGroup];
+      return !!gs && !gs.hidden && !gs.collapsed && (gs.tab || g.querySelector("[data-tab]")?.dataset.tab) === body.dataset.tabBody;
+    },
+    // Window > <panel>: close it when it is open, otherwise bring it back and show it.
+    togglePanel(panel) {
+      const body = bodyOf(panel), g = body && groups.find((x) => x.contains(body));
+      if (!g) return;
+      if (api.isShown(panel)) api.closeGroup(g.dataset.dockGroup); else api.revealPanel(panel);
+    },
     toggleGroup(id) { (state.groups[id] ||= {}).collapsed = !state.groups[id]?.collapsed; apply(); save(); },
     toggleDock(force) { state.collapsed = force ?? !state.collapsed; fly = null; apply(); save(); },
     // Collapsed dock: open the panel behind an icon as a flyout; the same icon again closes it, only one is open.
@@ -223,9 +254,7 @@ export function mountDock(root, { prefs, bus } = {}) {
     setWidth(w) { state.width = clampW(w); apply(); save(); },
     // Reveal the tab holding a panel mount, e.g. revealPanel("watch").
     revealPanel(panel) {
-      // Window menu names ("watch-ai") match a tab id ("watchai") rather than its mount ("watch").
-      const body = root.querySelector(`[data-panel="${panel}"]`)?.closest("[data-tab-body]")
-        || root.querySelector(`[data-tab-body="${String(panel).replace(/-/g, "")}"]`);
+      const body = bodyOf(panel);
       const g = body && groups.find((x) => x.contains(body));
       if (g) { state.collapsed = false; api.showTab(g.dataset.dockGroup, body.dataset.tabBody); }
     },
@@ -236,7 +265,9 @@ export function mountDock(root, { prefs, bus } = {}) {
     const c = ev.target.closest?.("[data-group-toggle]");
     const d = ev.target.closest?.("[data-dock-toggle]");
     const m = ev.target.closest?.("[data-group-menu]");
-    if (t && state.collapsed) api.toggleFly(t.closest("[data-dock-group]").dataset.dockGroup, t.dataset.tab, t);
+    const x = ev.target.closest?.("[data-group-close]");
+    if (x) api.closeGroup(x.closest("[data-dock-group]").dataset.dockGroup);
+    else if (t && state.collapsed) api.toggleFly(t.closest("[data-dock-group]").dataset.dockGroup, t.dataset.tab, t);
     else if (t) api.showTab(t.closest("[data-dock-group]").dataset.dockGroup, t.dataset.tab);
     else if (c) api.toggleGroup(c.closest("[data-dock-group]").dataset.dockGroup);
     else if (d) api.toggleDock();

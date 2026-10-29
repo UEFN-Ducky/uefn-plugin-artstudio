@@ -62,8 +62,9 @@ export const CSS = `
 .tb__item{display:flex;align-items:center;gap:8px;padding:6px 8px;background:none;color:var(--fg);border:1px solid transparent;border-radius:6px;cursor:pointer;text-align:left;font:inherit}
 .tb__item:hover{background:var(--bg);border-color:var(--border)}
 .tb__item[aria-checked="true"]{border-color:var(--accent)}
-.tb__item span{flex:1}.tb__item kbd{color:var(--muted);font:inherit;font-size:11px}
-.tb__tick{width:16px;height:16px;color:var(--accent);visibility:hidden}
+.tb__item>span:not(.tb__tick){flex:1;text-align:left}.tb__item kbd{color:var(--muted);font:inherit;font-size:11px}
+.tb__item svg{flex:none}
+.tb__tick{flex:none;display:inline-flex;width:16px;height:16px;color:var(--accent);visibility:hidden}
 .tb__item[aria-checked="true"] .tb__tick{visibility:visible}
 .tb__mini{display:flex;flex-wrap:wrap;justify-content:center;gap:2px}
 .tb__mini button{width:20px;height:20px;padding:0;display:flex;align-items:center;justify-content:center;background:none;border:none;color:var(--muted);cursor:pointer;border-radius:4px}

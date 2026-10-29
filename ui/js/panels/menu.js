@@ -195,7 +195,8 @@ export function mount(el, ctx) {
       { label: 'Snap', shortcut: 'Ctrl+;', run: go('view.toggle', { what: 'snap' }) },
     ],
     Window: [
-      ...PANELS.map((p) => ({ label: p, run: go('window.toggle', { panel: p.toLowerCase().replace(/ /g, '-') }) })),
+      // Checked = open now; picking an open panel closes it, a closed one comes back (like Photoshop's Window menu).
+      ...PANELS.map((p) => { const panel = p.toLowerCase().replace(/ /g, '-'); return { label: p, checked: !!ctx.dock?.isShown?.(panel), run: go('window.toggle', { panel }) }; }),
       { sep: 1 },
       { label: 'Reset Workspace', run: go('window.reset') },
     ],

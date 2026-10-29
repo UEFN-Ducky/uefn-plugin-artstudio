@@ -1,6 +1,8 @@
 /* Art Studio shell. Layout ported from the coloring workspace scss; colors only through Ducky variables. */
 .studio { display: flex; flex-direction: column; height: 100vh; margin: 0; gap: 8px; padding: 8px; box-sizing: border-box; overflow: hidden; user-select: none; font-family: var(--font-ui); font-size: 12px; color: var(--fg); background: var(--bg); }
 .studio *, .studio *::before, .studio *::after { box-sizing: border-box; }
+html { overflow: hidden; } /* the studio fills the panel; nothing scrolls the page itself */
+.studio [hidden] { display: none !important; } /* kit button / pill styles must not bring hidden controls back */
 .studio :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* The canvas takes focus for shortcuts; never draw a focus ring around the whole artwork area. */
 .studio [data-panel="canvas"]:focus, .studio [data-panel="canvas"] :focus,
@@ -49,11 +51,18 @@
 .studio__pgroup.is-collapsed .studio__pbody { display: none; }
 .studio__tabs { flex: none; align-items: center; }
 .studio__dock.is-collapsed .studio__pgroup { flex: none; }
-.studio__gmenu, .studio__gtoggle { padding: 0 6px; margin-left: auto; }
+/* group header: tabs left; menu / collapse / close are equal 24 px icon buttons pinned right, same on every row */
+.studio .studio__tabs [data-tab] { height: 26px; }
+.studio .studio__tabs .studio__gmenu, .studio .studio__tabs .studio__gtoggle, .studio .studio__tabs .studio__gclose {
+  width: 24px; height: 24px; min-width: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; border-radius: 6px; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; }
+.studio .studio__tabs .studio__gmenu:hover, .studio .studio__tabs .studio__gtoggle:hover, .studio .studio__tabs .studio__gclose:hover { background: var(--bg); color: var(--fg); }
+.studio__gmenu, .studio__gtoggle { margin-left: auto; }
 .studio__gmenu + .studio__gtoggle { margin-left: 0; }
+.studio__pgroup[hidden], .studio__pgroup[hidden] + .studio__gsplit { display: none; }
 .studio__pgroup.is-collapsed .studio__gtoggle { transform: rotate(-90deg); }
 .studio__dock.is-collapsed .lb, .studio__dock.is-collapsed .studio__gmenu,
-.studio__dock.is-collapsed .studio__gtoggle, .studio__dock.is-collapsed .studio__resize { display: none; }
+.studio__dock.is-collapsed .studio__gtoggle, .studio__dock.is-collapsed .studio__gclose, .studio__dock.is-collapsed .studio__resize { display: none; }
 .studio__dock.is-collapsed .studio__tabs { flex-direction: column; }
 .studio__dock.is-collapsed [data-tab][aria-selected="false"] { opacity: 0.6; }
 /* stage: the canvas fills what the AI bar leaves, so art never scrolls under the bar */
@@ -63,7 +72,7 @@
 .studio__tabs { display: flex; gap: 4px; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
 .studio__tabs [data-tab] { flex: none; white-space: nowrap; }
 .studio__tabs [data-tab][aria-selected="false"] .lb { display: none; }
-.studio__tabs .studio__gmenu, .studio__tabs .studio__gtoggle { flex: none; }
+.studio__tabs .studio__gmenu, .studio__tabs .studio__gtoggle, .studio__tabs .studio__gclose { flex: none; }
 .studio__pbody[hidden], .studio__state[hidden] { display: none; }
 .studio__state { position: absolute; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; background: var(--bg); }
 .studio [data-tab][aria-selected="true"] { background: var(--accent); color: var(--bg); }

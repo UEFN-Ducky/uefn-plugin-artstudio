@@ -47,6 +47,7 @@ export const STEPS = {
   bigdraw: [['opendoc', 'Small'], ['wait', 2500], ['key', 'b'], ['drag'], ['wait', 1000], ['opendoc', 'Big'], ['wait', 2500], ['hold'],
     ['ink', 'js'], ['reload'], ['wait', 2500], ['ink', 'backend']],
   teammate: [['wait', 1500], ['teammate']],
+  dockclose: [['wait', 1500], ['dockclose']],
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = [];
@@ -97,6 +98,25 @@ export async function run(name, win) {
       else if (verb === 'canvaskey') { const c = q('[data-panel="canvas"] canvas'); c.focus(); c.dispatchEvent(new win.KeyboardEvent('keydown', { key: a, code: 'Key' + a.toUpperCase(), bubbles: true, cancelable: true, ...(b || {}) })); }
       else if (verb === 'wait') await sleep(a);
       else if (verb === 'opendoc') { const A = win.artstudio, d = A.store.get().docs.find((x) => x.name === a); A.store.set({ doc: d.id }); }
+      else if (verb === 'dockclose') { // ✕ closes a panel group, Window menu reopens it; header buttons line up; tool flyout rows left-aligned
+        const A = win.artstudio, g = q('[data-dock-group="history"]'), vis = (e) => e.getClientRects().length > 0;
+        q('[data-group-close]', g).click(); await sleep(200);
+        const closed = !vis(g), checkedOff = !A.dock.isShown('history');
+        A.dispatch('window.toggle', { panel: 'history' }); await sleep(200);
+        const back = vis(g) && A.dock.isShown('history');
+        A.dispatch('window.toggle', { panel: 'history' }); await sleep(200);
+        const toggledOff = !vis(g);
+        A.dispatch('window.reset'); await sleep(200);
+        log.push(`dock close: closed=${closed} menuUnchecked=${checkedOff} windowReopens=${back} windowClosesAgain=${toggledOff} resetRestores=${vis(g)}`);
+        const rights = [...doc.querySelectorAll('[data-dock-group]')].filter(vis).map((x) => Math.round(q('.studio__tabs', x).lastElementChild.getBoundingClientRect().right));
+        const sizes = [...doc.querySelectorAll('.studio__gmenu,.studio__gtoggle,.studio__gclose')].filter(vis).map((b) => `${Math.round(b.getBoundingClientRect().width)}x${Math.round(b.getBoundingClientRect().height)}`);
+        log.push(`header right edges: ${[...new Set(rights)].join(',')} ; header button sizes: ${[...new Set(sizes)].join(',')}`);
+        const btn = q('[data-tool][aria-haspopup]'), r = btn.getBoundingClientRect();
+        btn.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: r.x + 5, clientY: r.y + 5 })); await sleep(600);
+        btn.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, button: 0 }));
+        const rows = [...doc.querySelectorAll('.tb__fly .tb__item')].map((it) => { const ic = it.querySelectorAll('svg')[1], lb = it.querySelector('span:not(.tb__tick)'); return `${Math.round(ic.getBoundingClientRect().left - it.getBoundingClientRect().left)}/${Math.round(lb.getBoundingClientRect().left - it.getBoundingClientRect().left)}`; });
+        log.push(`flyout rows icon-left/label-left px: ${rows.join(' ')}`);
+      }
       else if (verb === 'reload') await win.artstudio.engine.load(win.artstudio.store.get().doc);
       else if (verb === 'teammate') { // a teammate's stroke arrives over live sync while our own stroke is still being saved
         const eng = win.artstudio.engine, did = win.artstudio.store.get().doc, L = eng.layers.at(-1).id;

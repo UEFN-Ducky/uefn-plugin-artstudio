@@ -90,7 +90,7 @@ export async function clickall(win, log, sect) {
         await act(`${top} > ${path.join(' > ')}`, 'click', async () => {
           q(`[data-menu="${top}"]`).click(); await sleep(80);
           for (let i = 0; i < path.length; i++) {
-            const el = qa('.dk-menu__item').find((e) => vis(e) && txt(e).startsWith(path[i]));
+            const el = qa('.dk-menu__item').find((e) => vis(e) && txt(q('.dk-menu__label', e) || e).startsWith(path[i])); // label, not the ✓ of a checked Window item
             if (!el) throw new Error('item not shown: ' + path[i]);
             if (el.classList.contains('is-disabled')) throw new Error('disabled');
             el.dispatchEvent(new win.PointerEvent('pointerenter', { bubbles: true }));
