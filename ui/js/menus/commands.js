@@ -197,10 +197,32 @@ const lazy = (hook, file, fn) => async (ctx) => (ctx[hook] ? ctx[hook](ctx) : (a
 async function redo(ctx) {
   if (ctx.engine?.redo) return ctx.engine.redo();
   const r = await ctx.rpc("ops_since", { doc: docOf(ctx), rev: Math.max(0, (ctx.engine?.rev || 0) - 200), limit: 200 });
-  const ops = r?.ops || [], target = (o) => o.args?.target ?? o.target;
-  const undone = new Set(ops.filter((o) => o.kind === "undo").map(target));
-  const last = [...ops].reverse().find((o) => o.kind === "undo" && !undone.has(o.rev));
+  const ops = r?.ops || [], target = (o) => o.args?.target ?? o.target, byRev = new Map(ops.map((o) => [o.rev, o]));
+  // Newest first, like the backend: a live undo cancels its target, so an undone undo no longer counts.
+  const gone = new Set();
+  for (const o of [...ops].reverse()) if (o.kind === "undo" && !gone.has(o.rev)) gone.add(target(o));
+  // Redo = cancel the newest live undo of a real edit (never one of our own redo ops, or Ctrl+Y would flip-flop).
+  // ponytail: a new edit doesn't clear the redo stack; add that if redo-after-edit surprises anyone.
+  const last = [...ops].reverse().find((o) => o.kind === "undo" && !gone.has(o.rev) && byRev.get(target(o))?.kind !== "undo");
   return last ? ctx.engine.commit("undo", null, { target: last.rev }) : ctx.toast?.("Nothing to redo");
+}
+
+async function undo(ctx) {
+  if (!ctx.engine?.undo) return na(ctx, "Undo");
+  const r = await ctx.engine.undo();
+  if (r?.ok && r.undone === 0) ctx.toast?.("Nothing to undo");
+  return r;
+}
+
+// File > Document Info: what the old bottom status strip showed (zoom, size, rev, collaborators, AI state).
+function docInfo(ctx) {
+  const s = ctx.store?.get?.() || {}, d = (s.docs || []).find((x) => x.id === s.doc) || {};
+  const live = Array.isArray(s.live) ? s.live.length : Number(s.live) || 0;
+  const rows = [["Name", d.name || "—"], ["Size", d.w && d.h ? `${d.w} × ${d.h} px` : "—"], ["Zoom", `${Math.round((ctx.engine?.view?.zoom ?? 1) * 100)}%`],
+    ["Revision", String(ctx.engine?.rev ?? d.rev ?? 0)], ["Live", live ? `${live} collaborator${live === 1 ? "" : "s"}` : "Working solo"], ["AI", s.ai || "idle"]];
+  dialog({ title: "Document Info", cancel: null, body: (el) => {
+    for (const [k, v] of rows) { const p = document.createElement("div"); p.textContent = `${k}: ${v}`; el.append(p); }
+  } });
 }
 
 // About: the host's ui.alert, or our own dialog when the host lacks it (not awaited: it resolves on OK).
@@ -240,8 +262,9 @@ const alias = (to) => (ctx, a) => {
 
 export const COMMANDS = {
   // history / clipboard
-  undo: (ctx) => (ctx.engine?.undo ? ctx.engine.undo() : na(ctx, "Undo")),
+  undo,
   redo,
+  "doc.info": docInfo,
   "edit.stepBackward": alias("undo"),
   "edit.cut": cut, "edit.copy": copy, paste,
   // selection + view (engine owns the core ones)

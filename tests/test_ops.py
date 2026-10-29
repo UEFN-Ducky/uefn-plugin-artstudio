@@ -162,6 +162,16 @@ def test_undo_by_author_kind():
     assert api.tools.get("artstudio_undo") is None  # not registered until register()
 
 
+def test_undo_any_takes_newest_edit_of_anyone():
+    api, did = _doc(0)
+    ops.append(api, did, dict(_stroke("L1", 10, 8), by={"kind": "ai", "id": "claude"}))
+    me = {"kind": "human", "id": "me"}
+    assert ops.undo(api, did, me)["undone"] == 0  # the panel user drew nothing
+    r = ops.undo(api, did, {**me, "any": True})
+    assert r["ok"] and r["undone"] == 1
+    assert api.data.get(contracts.op_key(did, r["rev"]))["by"]["id"] == "me"
+
+
 def test_checkpoints_sync_as_files_and_rebuild_after_cache_loss():
     import shutil
     api, did = _doc(55)

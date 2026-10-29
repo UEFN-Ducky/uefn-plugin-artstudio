@@ -477,7 +477,9 @@ export function createEngine({ rpc, call, by }) {
       return res;
     },
     async undo() {
-      const r = await rpc('undo', { doc: doc.id, by: self });
+      let r = await rpc('undo', { doc: doc.id, by: self });
+      // Nothing of mine left (e.g. the AI drew it): undo the newest edit by anyone, like Photoshop.
+      if (r?.ok && !r.undone) r = await rpc('undo', { doc: doc.id, by: { ...self, any: true } });
       if (r?.ok) await engine.catchUp();
       return r;
     },
@@ -751,7 +753,6 @@ export async function mount(el, ctx) {
   const { polygonMask } = await import('./selection.js');
   const cv = Object.assign(document.createElement('canvas'), { tabIndex: 0 });
   cv.style.cssText = 'width:100%;height:100%;display:block;touch-action:none';
-  el.style.position = 'relative'; // the text editor floats over the canvas
   el.append(cv);
   const eng = createEngine({ rpc: ctx.rpc, call: ctx.call, by: { kind: 'human', id: 'me', label: 'Me' } });
   ctx.engine = eng; eng.bindBus(ctx.bus);

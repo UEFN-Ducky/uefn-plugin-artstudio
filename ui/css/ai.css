@@ -1,7 +1,7 @@
 .ai-bar {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 30;
-  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-  background: var(--card); color: var(--fg); border-top: 1px solid var(--border);
+  flex: none; z-index: 30;
+  display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+  background: var(--card); color: var(--fg); border: 1px solid var(--border); border-radius: 8px;
 }
 .ai-bar[hidden], .ai-pill[hidden], .ai-bar-stop[hidden] { display: none; }
 .ai-bar-agent, .ai-bar-prompt, .ai-bar-send, .ai-bar-stop, .ai-bar-close {

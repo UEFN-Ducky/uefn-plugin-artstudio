@@ -124,10 +124,12 @@ export function mount(el, ctx) {
       { sep: 1 },
       { label: 'Export as', needsDoc: 1, sub: exportItems },
       { label: 'Send to UEFN', needsDoc: 1, run: () => run('Send to UEFN', RPC.toUefn, { doc: doc(), preset: 'uefn_ui' }) },
+      { sep: 1 },
+      { label: 'Document Info…', needsDoc: 1, run: go('doc.info') },
     ],
     Edit: [
       { label: 'Undo', shortcut: 'Ctrl+Z', needsDoc: 1, run: go('undo') },
-      { label: 'Redo', shortcut: 'Ctrl+Shift+Z', needsDoc: 1, run: go('redo') },
+      { label: 'Redo', shortcut: 'Ctrl+Y', needsDoc: 1, run: go('redo') },
       { sep: 1 },
       { label: 'Cut', shortcut: 'Ctrl+X', needsDoc: 1, run: go('edit.cut') },
       { label: 'Copy', shortcut: 'Ctrl+C', needsDoc: 1, run: go('edit.copy') },

@@ -239,6 +239,16 @@ await runCommand(fc, 'tool.tempEyedropper', { arg: false }); assert.deepEqual(lo
 fc = mkFull();
 await runCommand(fc, 'redo');
 assert.deepEqual(fc.commits[0], ['undo', null, { target: 5 }], 'redo undoes the newest live undo op');
+// After that redo (rev 6 cancels undo 5), Ctrl+Y again must not re-undo: only the older undo 4 is left to redo.
+fc = mkFull();
+fc.rpc = async () => ({ ok: true, ops: [{ kind: 'stroke', rev: 2 }, { kind: 'stroke', rev: 3 }, { kind: 'undo', rev: 4, args: { target: 2 } },
+  { kind: 'undo', rev: 5, args: { target: 3 } }, { kind: 'undo', rev: 6, args: { target: 5 } }] });
+await runCommand(fc, 'redo');
+assert.deepEqual(fc.commits[0], ['undo', null, { target: 4 }], 'redo never flips its own redo');
+fc = mkFull();
+fc.engine.undo = async () => ({ ok: true, undone: 0 });
+await runCommand(fc, 'undo');
+assert.deepEqual(fc.toasts, ['Nothing to undo']);
 fc = mkFull();
 await runCommand(fc, 'layer.mergeVisible');
 assert.deepEqual(fc.commits, [['layer.merge', 'L2', { into: 'L1' }]]);

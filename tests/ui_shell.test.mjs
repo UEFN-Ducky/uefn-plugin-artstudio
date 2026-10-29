@@ -17,7 +17,8 @@ for (const [name, path] of Object.entries(PANELS)) {
   assert.ok(mounts.includes(name), `PANELS.${name} has no mount in index.html`);
   assert.ok(existsSync(new URL(`../ui/js/${path}`, import.meta.url)) || existsSync(new URL(`../ui/${path.replace('../', '')}`, import.meta.url)), `${path} missing`);
 }
-for (const part of ['data-doc-tabs', 'data-dock', 'data-status', 'data-dock-resize']) assert.ok(html.includes(part), part);
+for (const part of ['data-doc-tabs', 'data-dock', 'data-dock-resize', 'data-dock-group="history"']) assert.ok(html.includes(part), part);
+assert.ok(!html.includes('data-status'), 'no bottom status strip');
 
 // ---- status bar follows the store ----
 const bus = { h: {}, on(n, f) { this.h[n] = f; } };
@@ -209,11 +210,11 @@ assert.equal(kids.at(-1).textContent, '2 live collaborators');
 for (const t of ['color', 'swatches', 'properties', 'adjustments', 'layers', 'history', 'navigator', 'brushes', 'watchai', 'versions', 'feedback', 'chat']) {
   assert.ok(html.includes(`data-tab="${t}"`) && html.includes(`data-tab-body="${t}"`), `tab ${t}`);
 }
-assert.equal([...html.matchAll(/data-dock-group="/g)].length, 5);
+assert.equal([...html.matchAll(/data-dock-group="/g)].length, 6); // History is its own group
 // each group header is ONE row container holding its tabs and its menu + collapse buttons
 const css = readFileSync(new URL('../ui/css/studio.css', import.meta.url), 'utf8');
 const navs = [...html.matchAll(/<nav class="studio__tabs"[\s\S]*?<\/nav>/g)].map((m) => m[0]);
-assert.equal(navs.length, 5);
+assert.equal(navs.length, 6);
 for (const n of navs) assert.ok(n.includes('data-tab=') && n.includes('data-group-toggle'), 'header row');
 assert.match(css, /\.studio__tabs \{[^}]*flex-wrap: nowrap/);
 // top bar is one card strip with New / Open / Watch AI inside it

@@ -9,6 +9,7 @@ export const SHORTCUTS = [
   ['Ctrl+S', 'save', 'Save'],
   ['Ctrl+Z', 'undo', 'Undo'],
   ['Ctrl+Shift+Z', 'redo', 'Redo'],
+  ['Ctrl+Y', 'redo', 'Redo'],
   ['Ctrl+Alt+Z', 'edit.stepBackward', 'Step backward'],
   ['Ctrl+T', 'edit.freeTransform', 'Free transform'],
   ['Ctrl+D', 'select.none', 'Deselect'],

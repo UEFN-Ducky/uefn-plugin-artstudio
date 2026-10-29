@@ -275,8 +275,12 @@ def undo(api, doc_id: str, by=None, steps: int = 1) -> dict:
     if isinstance(by, str):  # "ai" / "human" = any author of that kind, else one author id; "" = the AI
         by = {"kind": by if by in contracts.AUTHOR_KINDS else "ai", "id": by or "agent"}
     me = by_of(by)
-    same = (lambda o: o["by"]["kind"] == me["kind"]) if by and by.get("id") in contracts.AUTHOR_KINDS \
-        else (lambda o: o["by"]["id"] == me["id"])
+    if isinstance(by, dict) and by.get("any"):  # the panel's Ctrl+Z once its own edits are gone: newest edit by anyone
+        same = lambda o: True
+    elif by and by.get("id") in contracts.AUTHOR_KINDS:
+        same = lambda o: o["by"]["kind"] == me["kind"]
+    else:
+        same = lambda o: o["by"]["id"] == me["id"]
     ops = _load(api, doc_id, 1, doc["rev"])
     gone = _undone(ops, doc["rev"])
     mine = [o["rev"] for o in ops if same(o) and o["rev"] not in gone

@@ -18,8 +18,8 @@ export function formatStatus(s = {}) {
   ].join(" · ");
 }
 
-// el: the status bar element. Returns the unsubscribe function.
+// el: the status bar element, or null to only keep the store current (Document Info reads it). Returns the unsubscribe function.
 export function mountStatusbar(el, ctx) {
   ctx.bus?.on("status", (patch) => ctx.store.set(patch));
-  return ctx.store.subscribe((s) => { el.textContent = formatStatus(s); });
+  return el ? ctx.store.subscribe((s) => { el.textContent = formatStatus(s); }) : () => {};
 }

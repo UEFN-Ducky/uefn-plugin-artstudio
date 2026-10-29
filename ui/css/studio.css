@@ -22,9 +22,6 @@
 .studio__doctab-close { padding: 0 4px; border-radius: 4px; color: var(--muted); }
 .studio__doctab-close:hover { background: var(--bg); color: var(--fg); }
 
-/* status bar */
-.studio__status { flex: none; display: flex; align-items: center; height: 22px; padding: 0 12px; color: var(--muted); font-size: 11px; background: var(--card); border: 1px solid var(--border); border-radius: 999px; }
-
 /* body: floating side cards around a frameless stage */
 .studio__body { flex: 1; min-height: 0; display: flex; gap: 8px; }
 .studio__tools { display: flex; flex-direction: column; gap: 2px; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; min-height: 0; padding: 4px; width: 70px; flex: none; align-items: stretch; }
@@ -59,8 +56,9 @@
 .studio__dock.is-collapsed .studio__gtoggle, .studio__dock.is-collapsed .studio__resize { display: none; }
 .studio__dock.is-collapsed .studio__tabs { flex-direction: column; }
 .studio__dock.is-collapsed [data-tab][aria-selected="false"] { opacity: 0.6; }
-.studio__stage { position: relative; flex: 1; min-width: 0; min-height: 0; }
-.studio__canvas { position: absolute; inset: 0; display: flex; flex-direction: column; }
+/* stage: the canvas fills what the AI bar leaves, so art never scrolls under the bar */
+.studio__stage { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.studio__canvas { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 8px; }
 /* one row per group header: tabs left, menu and collapse at the right edge; inactive tabs show only their icon */
 .studio__tabs { display: flex; gap: 4px; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
 .studio__tabs [data-tab] { flex: none; white-space: nowrap; }

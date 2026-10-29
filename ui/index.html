@@ -64,14 +64,21 @@
       <section class="studio__pgroup" data-dock-group="layers">
         <nav class="studio__tabs" role="tablist" aria-label="Layers">
           <button class="dk-pill" role="tab" data-tab="layers" title="Layers"><span class="ic">☰</span><span class="lb">Layers</span></button>
-          <button class="dk-pill" role="tab" data-tab="history" title="History"><span class="ic">⟲</span><span class="lb">History</span></button>
           <button class="dk-pill" role="tab" data-tab="navigator" title="Navigator"><span class="ic">◫</span><span class="lb">Navigator</span></button>
           <button class="dk-btn studio__gmenu" data-group-menu="layers" title="Panel menu" aria-label="Layers panel menu">⋮</button>
           <button class="dk-btn studio__gtoggle" data-group-toggle title="Collapse group" aria-label="Collapse Layers group">▾</button>
         </nav>
         <div class="studio__pbody" data-tab-body="layers"><section data-panel="layers"></section></div>
-        <div class="studio__pbody" data-tab-body="history" hidden><section data-panel="history"></section></div>
         <div class="studio__pbody" data-tab-body="navigator" hidden><section data-panel="navigator"></section></div>
+      </section>
+
+      <div class="studio__gsplit" data-group-split role="separator" aria-orientation="horizontal" aria-label="Resize groups"></div>
+      <section class="studio__pgroup" data-dock-group="history">
+        <nav class="studio__tabs" role="tablist" aria-label="History">
+          <button class="dk-pill" role="tab" data-tab="history" title="History"><span class="ic">⟲</span><span class="lb">History</span></button>
+          <button class="dk-btn studio__gtoggle" data-group-toggle title="Collapse group" aria-label="Collapse History group">▾</button>
+        </nav>
+        <div class="studio__pbody" data-tab-body="history"><section data-panel="history"></section></div>
       </section>
 
       <div class="studio__gsplit" data-group-split role="separator" aria-orientation="horizontal" aria-label="Resize groups"></div>
@@ -103,8 +110,6 @@
       </section>
     </aside>
   </main>
-
-  <footer class="studio__status" data-status role="status" aria-live="polite"></footer>
 
   <script type="module" src="js/app.js"></script>
 </body>

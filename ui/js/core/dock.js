@@ -170,10 +170,10 @@ export function mountDock(root, { prefs, bus } = {}) {
   const saved = prefs?.get?.("dock") || {};
   const state = { collapsed: !!saved.collapsed, width: clampW(saved.width), groups: { ...(saved.groups || {}) } };
 
-  // First run: only Layers and the last used group start expanded.
+  // First run: only Layers, History and the last used group start expanded.
   for (const g of groups) {
     const id = g.dataset.dockGroup;
-    if (!state.groups[id]) state.groups[id] = { collapsed: id !== "layers" && id !== saved.last };
+    if (!state.groups[id]) state.groups[id] = { collapsed: id !== "layers" && id !== "history" && id !== saved.last };
   }
   state.last = saved.last;
 
@@ -223,7 +223,9 @@ export function mountDock(root, { prefs, bus } = {}) {
     setWidth(w) { state.width = clampW(w); apply(); save(); },
     // Reveal the tab holding a panel mount, e.g. revealPanel("watch").
     revealPanel(panel) {
-      const body = root.querySelector(`[data-panel="${panel}"]`)?.closest("[data-tab-body]");
+      // Window menu names ("watch-ai") match a tab id ("watchai") rather than its mount ("watch").
+      const body = root.querySelector(`[data-panel="${panel}"]`)?.closest("[data-tab-body]")
+        || root.querySelector(`[data-tab-body="${String(panel).replace(/-/g, "")}"]`);
       const g = body && groups.find((x) => x.contains(body));
       if (g) { state.collapsed = false; api.showTab(g.dataset.dockGroup, body.dataset.tabBody); }
     },

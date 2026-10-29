@@ -238,7 +238,7 @@ ctx.refreshDocs = loadDocs;
 setFeedbackDeps(ctx, { chat: chatDrawer.chat, call });
 
 const dock = ctx.dock = mountDock($("[data-dock]"), { prefs, bus });
-mountStatusbar($("[data-status]"), ctx);
+mountStatusbar(null, ctx); // no bottom strip: File > Document Info shows these
 store.subscribe((s) => { renderState(); renderTabs(); prefs.set("closedDocs", s.closed); });
 store.subscribe((s) => { if (s.doc !== ctx.lastDoc) { ctx.lastDoc = s.doc; bus.emit("doc", { doc: s.doc }); } });
 
