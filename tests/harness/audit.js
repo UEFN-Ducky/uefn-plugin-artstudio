@@ -51,6 +51,7 @@ export const STEPS = {
   projects: [['wait', 1500], ['projects']],
   strip: [['wait', 1200], ['strip']],
   aichat: [['wait', 1200], ['aichat']],
+  layerclicks: [['wait', 1500], ['layerclicks']],
   toolpop: [['wait', 1200], ['key', 'b'], ['ctx', '[data-panel="canvas"] canvas'], ['wait', 300], ['toolpop']],
   toolpopfill: [['wait', 1200], ['key', 'g'], ['ctx', '[data-panel="canvas"] canvas'], ['wait', 300], ['toolpop']],
 };
@@ -146,6 +147,21 @@ export async function run(name, win) {
         log.push(`toolbar: ${bs.length} tools, overlapping pairs=${hits}, outside the card=${out}`);
         const R = (r) => `${Math.round(r.left)}..${Math.round(r.right)}`;
         log.push(`card ${R(card)} ; toolbar section ${R(q('[data-panel="toolbar"]').getBoundingClientRect())} ; .tb ${R(q('.tb').getBoundingClientRect())} ; grid ${R(q('.tb__grid').getBoundingClientRect())} ; first two tools ${R(bs[0])} ${R(bs[1])} ; well ${R(q('.tb__well').getBoundingClientRect())}`);
+      }
+      else if (verb === 'layerclicks') { // eye / lock change at once (no refresh) and stick after the save; the canvas follows
+        const eng = win.artstudio.engine, L = eng.layers[0].id;
+        const row = () => q(`[data-panel="layers"] .as-layer[data-id="${L}"]`);
+        const btn = (a) => q(`[data-a="${a}"]`, row());
+        btn('vis').click(); await sleep(30);
+        const visNow = btn('vis').getAttribute('aria-pressed');
+        await sleep(1200);
+        const visLater = btn('vis').getAttribute('aria-pressed'), engVis = eng.layers[0].visible;
+        btn('lock').click(); await sleep(30);
+        const lockNow = btn('lock').getAttribute('aria-pressed');
+        await sleep(1200);
+        const lockLater = btn('lock').getAttribute('aria-pressed'), engLock = eng.layers[0].locked;
+        btn('vis').click(); btn('lock').click(); await sleep(1200);
+        log.push(`eye: now=${visNow} later=${visLater} canvas visible=${engVis} ; lock: now=${lockNow} later=${lockLater} canvas locked=${engLock} ; back: eye=${btn('vis').getAttribute('aria-pressed')} lock=${btn('lock').getAttribute('aria-pressed')} broken imgs=${[...doc.querySelectorAll('[data-panel="layers"] img')].filter((i) => !i.getAttribute('src')).length}`);
       }
       else if (verb === 'aichat') { // AI bar pull-up chat with a stubbed agent (no model call): working line, reply, expand
         const thread = []; let t0 = 0;

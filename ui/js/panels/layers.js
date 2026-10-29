@@ -49,7 +49,8 @@ const CSS = `
 .as-layer:hover [data-a="lock"][aria-pressed="false"],.as-layer [data-a="lock"]:focus-visible{opacity:.5}
 `;
 
-const LOCKS = [["pixels", "▨", "Lock pixels"], ["position", "✥", "Lock position"], ["all", "🔒", "Lock all"]];
+// ponytail: one lock (the op log stores `locked` only); add pixel / position locks when layer.set carries them
+const LOCKS = [["all", "🔒", "Lock layer (no painting or moving)"]];
 
 export function mount(el, ctx) {
   if (!el) return;
@@ -91,19 +92,24 @@ export function mount(el, ctx) {
     toast: (m) => ctx.toast?.(m),
   });
 
+  // Changes the panel shows at once (eye, lock, name, blend…), until the canvas has the saved op.
+  const pending = new Map();
   const readLayers = () => {
     const l = ctx.engine?.layers;
-    layers = (typeof l === "function" ? l() : l) || [];
+    layers = ((typeof l === "function" ? l() : l) || []).map((x) => (pending.has(x.id) ? { ...x, ...pending.get(x.id) } : x));
     if (!layers.some((x) => x.id === active)) active = layers[layers.length - 1]?.id || null;
   };
   const by = () => ({ kind: "human", id: ctx.selfId || live().selfId || "me" });
-  // Optimistic local patch, then the same rpc the tool uses.
-  // After every rpc: let the engine pull the new ops (idempotent), then redraw.
-  const synced = (p) => Promise.resolve(p).then(() => ctx.engine?.catchUp?.()).catch(() => {}).then(schedule);
+  // After every rpc has landed: let the engine pull the new ops (idempotent), then redraw.
+  const synced = (p) => Promise.resolve(p)
+    .then((out) => { if (out?.ok === false) ctx.toast?.(out.error || "Change failed"); return ctx.engine?.catchUp?.(); })
+    .catch(() => {}).then(schedule);
+  // Show the change now, save it, then redraw from the saved state (a refused change snaps back with a toast).
   function patch(id, fields) {
     if (!presence.canEdit(id)) return;
-    layerSet(rpc, doc(), id, { ...fields, by: by() });
-    synced();
+    pending.set(id, { ...(pending.get(id) || {}), ...fields });
+    schedule();
+    return synced(layerSet(rpc, doc(), id, { ...fields, by: by() })).then(() => { pending.delete(id); schedule(); });
   }
   const sel = () => layers.find((l) => l.id === active);
   const add = (args = {}) => synced(newLayer(rpc, doc(), layers, args));
@@ -113,6 +119,7 @@ export function mount(el, ctx) {
     if (i > 0) synced(rpc("layer", { action: "merge", doc: doc(), layer: id, into: layers[i - 1].id }));
   };
 
+  const maskId = (l) => (typeof l.mask === "string" ? l.mask : l.mask?.layer) || ""; // the mask is another layer's pixels
   const thumbs = new Map(); // layer id → {url, rev}; redrawn only when the engine rev moved
   const thumb = (l) => {
     const cv = ctx.engine?.layerCanvas?.(l.id);
@@ -151,6 +158,8 @@ export function mount(el, ctx) {
   });
   function draw() {
     bindEngine();
+    // Never rebuild the list under a name being typed: focusout saves it and draws again.
+    if (list.querySelector('[data-a="name"]:not([readonly])')) return;
     readLayers();
     ctx.activeLayerId = active;
     const badges = presence.badges();
@@ -159,7 +168,7 @@ export function mount(el, ctx) {
         <button data-a="vis" aria-pressed="${l.visible !== false}" title="Visibility" aria-label="Toggle visibility">👁</button>
         ${l.color && l.color !== "none" ? `<span class="as-layer__label" title="${esc(l.color)}"></span>` : ""}
         <img class="as-layer__thumb" alt="" src="${esc(thumb(l))}">
-        ${l.mask ? `<img class="as-layer__thumb" alt="Mask" title="Layer mask" src="${esc(l.maskThumb || "")}">` : ""}
+        ${maskId(l) ? `<img class="as-layer__thumb" alt="" title="Layer mask" src="${esc(thumb({ id: maskId(l) }))}">` : ""}
         <input class="as-layer__name" value="${esc(l.name)}" data-a="name" aria-label="Layer name" readonly>
         ${l.style || l.fx ? `<span class="as-layer__fx" title="Layer style">fx</span>` : ""}
         ${badges[l.id] ? `<span class="as-lock-badge">${esc(badges[l.id])}</span>` : ""}
@@ -187,7 +196,7 @@ export function mount(el, ctx) {
     else if (a === "adjust") ctx.dispatch?.("adjust.menu", { layer: active });
     else if (a === "group") ctx.dispatch?.("layer.group", { layer: active });
     else if (a === "link" && s) ev.target.closest("[data-a]").setAttribute("aria-pressed", String(!s.linked)), (s.linked = !s.linked);
-    else if (a === "vis" && row) toggleVisible(rpc, doc(), layers.find((l) => l.id === row.dataset.id)).then(render), (layers.find((l) => l.id === row.dataset.id).visible = layers.find((l) => l.id === row.dataset.id).visible === false);
+    else if (a === "vis" && row) patch(row.dataset.id, { visible: layers.find((l) => l.id === row.dataset.id).visible === false });
     else if (a === "lock" && row) patch(row.dataset.id, { locked: !layers.find((l) => l.id === row.dataset.id).locked });
     render();
   });
