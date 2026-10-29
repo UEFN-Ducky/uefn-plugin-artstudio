@@ -207,6 +207,14 @@ export function createEngine({ rpc, call, by }) {
 
   function paintOutput() { comp?.render(doc.layers); emit(); }
 
+  // A mask op links its layer to the mask (backend masks.py: id `<layer>_m`); delete / apply unlink it.
+  function linkMask(op) {
+    const l = layerOf(op.layer), act = op.args?.action;
+    if (!l) return;
+    if (act === 'add' || act === 'from_selection') l.mask = op.args?.mask || `${op.layer}_m`;
+    else if (act === 'delete' || act === 'apply') delete l.mask;
+  }
+
   function layerStructure(op) {
     const a = op.args, ls = doc.layers;
     if (op.kind === 'layer.add') {
@@ -434,6 +442,7 @@ export function createEngine({ rpc, call, by }) {
       const raw = op;
       op = normalizeOp(op);
       if (!doc || (op.doc && op.doc !== doc.id)) return false;
+      if (op.kind === 'mask') linkMask(op);
       if (op.rev) {
         if (op.rev <= rev) return false;
         if (op.rev > rev + 1) { engine.catchUp(); return false; }
@@ -468,6 +477,7 @@ export function createEngine({ rpc, call, by }) {
       if (kind === 'stroke') args = normStroke(args);
       const op = { kind, layer, args, by: self };
       const sub = { ...op, doc: doc.id, rev: 0, t: Date.now() / 1000 };
+      if (kind === 'mask') linkMask(op);
       if (PIXEL_KINDS.has(kind)) { pending++; drawOp(sub); paintOutput(); }
       localSubs.forEach((f) => f(op));
       const res = await rpc('op_append', { doc: doc.id, op });

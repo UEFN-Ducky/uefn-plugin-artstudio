@@ -6,6 +6,11 @@ import { createPresence } from "../live/presence.js";
 import { scrubField } from "../ui/scrub.js";
 import { contextMenu } from "../ui/contextmenu.js";
 import { layerMenu } from "../menus/layer-menu.js";
+import { openMenu } from "../ui/menu.js";
+
+// The ◑ button's menu: one adjustment dialog per kind (the same ones as Image > Adjustments).
+export const ADJUSTMENT_KINDS = [["brightness_contrast", "Brightness/Contrast…"], ["levels", "Levels…"], ["curves", "Curves…"],
+  ["hue_saturation", "Hue/Saturation…"], ["color_balance", "Color Balance…"], ["invert", "Invert"]];
 
 // ---- pure calls (tested without a DOM) ---------------------------------------------------------------
 export const layerSet = (call, doc, layer, fields) => call("layer", { action: "set", doc, layer, ...fields });
@@ -42,6 +47,7 @@ const CSS = `
 .as-layer__name:focus-visible,.as-layers button:focus-visible{outline:2px solid var(--accent)}
 .as-layer button,.as-layers__bar button{background:transparent;border:0;color:var(--fg);cursor:pointer;padding:2px 4px}
 .as-layer button[aria-pressed=false],.as-layers__bar button[aria-pressed=false]{opacity:.4}
+.as-layer__mask{display:inline-block;background:var(--fg)}
 .as-layer__label{width:8px;height:8px;border-radius:999px;background:var(--accent);flex:none}
 .as-layer__fx{font-size:10px;border:1px solid var(--border);border-radius:999px;padding:0 4px}
 .as-lock-badge{font-size:11px;color:var(--accent)}
@@ -168,7 +174,9 @@ export function mount(el, ctx) {
         <button data-a="vis" aria-pressed="${l.visible !== false}" title="Visibility" aria-label="Toggle visibility">👁</button>
         ${l.color && l.color !== "none" ? `<span class="as-layer__label" title="${esc(l.color)}"></span>` : ""}
         <img class="as-layer__thumb" alt="" src="${esc(thumb(l))}">
-        ${maskId(l) ? `<img class="as-layer__thumb" alt="" title="Layer mask" src="${esc(thumb({ id: maskId(l) }))}">` : ""}
+        ${maskId(l) ? (thumb({ id: maskId(l) })
+          ? `<img class="as-layer__thumb" alt="" title="Layer mask" src="${esc(thumb({ id: maskId(l) }))}">`
+          : `<span class="as-layer__thumb as-layer__mask" title="Layer mask"></span>`) : ""}
         <input class="as-layer__name" value="${esc(l.name)}" data-a="name" aria-label="Layer name" readonly>
         ${l.style || l.fx ? `<span class="as-layer__fx" title="Layer style">fx</span>` : ""}
         ${badges[l.id] ? `<span class="as-lock-badge">${esc(badges[l.id])}</span>` : ""}
@@ -192,9 +200,12 @@ export function mount(el, ctx) {
     else if (a === "add") add();
     else if (a === "del" && s) remove(s.id);
     else if (a === "fx") ctx.dispatch?.("layer.blending", { layer: active });
-    else if (a === "mask" && s) ctx.dispatch?.(s.mask ? "layer.maskDelete" : "layer.maskAdd", { layer: s.id });
-    else if (a === "adjust") ctx.dispatch?.("adjust.menu", { layer: active });
-    else if (a === "group") ctx.dispatch?.("layer.group", { layer: active });
+    else if (a === "mask" && s) synced(ctx.dispatch?.(s.mask ? "layer.maskDelete" : "layer.maskAdd", { layer: s.id }));
+    else if (a === "adjust") {
+      const r = ev.target.closest("[data-a]").getBoundingClientRect();
+      openMenu(ADJUSTMENT_KINDS.map(([kind, label]) => ({ label, run: () => ctx.dispatch?.("adjust.open", { kind, layer: active }) })), { x: r.left, y: r.bottom + 4 });
+    }
+    else if (a === "group") add({ name: "Group", kind: "group" });
     else if (a === "link" && s) ev.target.closest("[data-a]").setAttribute("aria-pressed", String(!s.linked)), (s.linked = !s.linked);
     else if (a === "vis" && row) patch(row.dataset.id, { visible: layers.find((l) => l.id === row.dataset.id).visible === false });
     else if (a === "lock" && row) patch(row.dataset.id, { locked: !layers.find((l) => l.id === row.dataset.id).locked });

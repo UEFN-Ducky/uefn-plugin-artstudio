@@ -1,9 +1,9 @@
 // Image > Canvas Size: width / height (optionally relative), 3×3 anchor grid -> rpc('doc', {action:'canvas_size', args:{w,h,anchor}}).
 import { dialog } from '../ui/dialog.js';
 import { scrubField } from '../ui/scrub.js';
+import { MAX_SIDE, presetRow, sendResize } from './image-size.js';
 
 export const ANCHORS = ['top-left', 'top', 'top-right', 'left', 'center', 'right', 'bottom-left', 'bottom', 'bottom-right'];
-const MAX_SIDE = 16384;
 
 export async function openCanvasSize(ctx) {
   const cur = ctx.docSize?.() || { w: 1024, h: 1024 };
@@ -34,12 +34,13 @@ export async function openCanvasSize(ctx) {
         b.addEventListener('click', () => { st.anchor = a; });
         grid.append(b);
       }
-      el.append(f.w.el, f.h.el, mk('label', '', 'Relative'), rel, grid);
+      const presets = presetRow(cur, (s) => { rel.checked = false; st.relative = false; f.w.set(s.w); f.h.set(s.h); });
+      el.append(presets, f.w.el, f.h.el, mk('label', '', 'Relative'), rel, grid);
       return () => ({ ...st, w: f.w.get(), h: f.h.get() });
     },
   });
   if (!spec) return null;
   const w = spec.relative ? cur.w + spec.w : spec.w;
   const h = spec.relative ? cur.h + spec.h : spec.h;
-  return ctx.rpc('doc', { action: 'canvas_size', args: { w: Math.max(1, w), h: Math.max(1, h), anchor: spec.anchor } });
+  return sendResize(ctx, 'canvas_size', { w: Math.min(MAX_SIDE, Math.max(1, w)), h: Math.min(MAX_SIDE, Math.max(1, h)), anchor: spec.anchor });
 }

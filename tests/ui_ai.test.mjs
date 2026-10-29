@@ -1,7 +1,15 @@
 // node tests/ui_ai.test.mjs  (run from the plugin folder)
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { barModel, agentOptions, createTaskbar, dockParams, NEW_AGENT, SELECTION_HINT } from '../ui/js/ai/taskbar.js';
+import { barModel, agentOptions, createTaskbar, dockParams, mdLite, NEW_AGENT, SELECTION_HINT } from '../ui/js/ai/taskbar.js';
+// agent replies render as safe mini-markdown: no raw ** / ducky: links / > [!NOTE], and no HTML from the text
+{
+  const h = mdLite('I made **a nest**.\n\n## What I added\n- [**Twigs**](ducky:amber): `L7`\n> [!NOTE] One overlap\n> The tail <b>touches</b>.');
+  assert.match(h, /<strong>a nest<\/strong>/); assert.match(h, /class="ai-md-h">What I added/);
+  assert.match(h, /class="ai-md-li"><strong>Twigs<\/strong>: <code>L7<\/code>/);
+  assert.match(h, /class="ai-md-note"><strong>One overlap<\/strong><br>The tail &lt;b&gt;touches&lt;\/b&gt;\./);
+  assert.equal(/ducky:|\*\*|<b>/.test(h), false);
+}
 // Ducky's docked chat (host chat.open): one conversation per artwork, told which artwork and how to work
 {
   const p = dockParams('a62f3f', 'Sunset cabin');

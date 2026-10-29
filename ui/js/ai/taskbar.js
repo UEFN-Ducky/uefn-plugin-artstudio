@@ -35,6 +35,36 @@ export function dockParams(doc, name = '') {
   return { key: `doc:${doc}`, title: 'Art Studio AI', brief, place: 'bottom', expanded: false };
 }
 
+// Pure: an agent reply as safe HTML (escaped first): bold, code, headings, bullets, > [!NOTE] callouts.
+// Ducky color links [text](ducky:green) and plain links keep only their text.
+export function mdLite(text) {
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const inline = (s) => esc(s)
+    .replace(/\[([^\]]+)\]\((?:ducky:[a-z]+|https?:[^)\s]+|[^)\s]+)\)/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+  const out = [];
+  let quote = null;
+  const flush = () => { if (quote) { out.push(`<div class="ai-md-note">${quote.join('<br>')}</div>`); quote = null; } };
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trimEnd();
+    const q = /^>\s?(.*)$/.exec(line);
+    if (q) {
+      const tag = /^\[!(\w+)\]\s*(.*)$/.exec(q[1]);
+      (quote ||= []).push(tag ? `<strong>${esc(tag[2] || tag[1])}</strong>` : inline(q[1]));
+      continue;
+    }
+    flush();
+    const h = /^#{1,6}\s+(.*)$/.exec(line), li = /^\s*(?:[-*]|\d+\.)\s+(.*)$/.exec(line);
+    if (h) out.push(`<div class="ai-md-h">${inline(h[1])}</div>`);
+    else if (li) out.push(`<div class="ai-md-li">${inline(li[1])}</div>`);
+    else if (line) out.push(`<div>${inline(line)}</div>`);
+    else out.push('<div class="ai-md-gap"></div>');
+  }
+  flush();
+  return out.join('');
+}
+
 export const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const firstLine = (t) => String(t || '').replace(/[*_`#>]/g, '').split('\n').map((l) => l.trim()).find(Boolean) || '';
 
@@ -179,7 +209,10 @@ export function mountTaskbar(root, { prefs, rpc, getDoc, getTool, toast }) {
       thread.hidden = !m.expanded;
       if (m.thread.length !== shown || !thread.children.length) {
         shown = m.thread.length;
-        thread.replaceChildren(...m.thread.map((t) => mk('div', `ai-msg ai-msg--${t.role === 'user' ? 'user' : 'agent'}`, t.text)));
+        thread.replaceChildren(...m.thread.map((t) => {
+          if (t.role === 'user') return mk('div', 'ai-msg ai-msg--user', t.text);
+          const n = mk('div', 'ai-msg ai-msg--agent'); n.innerHTML = mdLite(t.text); return n; // escaped inside mdLite
+        }));
         thread.scrollTop = thread.scrollHeight;
       }
     },

@@ -52,6 +52,7 @@ export const STEPS = {
   strip: [['wait', 1200], ['strip']],
   aichat: [['wait', 1200], ['aichat']],
   layerclicks: [['wait', 1500], ['layerclicks']],
+  layerbtns: [['wait', 1500], ['layerbtns']],
   toolpop: [['wait', 1200], ['key', 'b'], ['ctx', '[data-panel="canvas"] canvas'], ['wait', 300], ['toolpop']],
   toolpopfill: [['wait', 1200], ['key', 'g'], ['ctx', '[data-panel="canvas"] canvas'], ['wait', 300], ['toolpop']],
 };
@@ -147,6 +148,24 @@ export async function run(name, win) {
         log.push(`toolbar: ${bs.length} tools, overlapping pairs=${hits}, outside the card=${out}`);
         const R = (r) => `${Math.round(r.left)}..${Math.round(r.right)}`;
         log.push(`card ${R(card)} ; toolbar section ${R(q('[data-panel="toolbar"]').getBoundingClientRect())} ; .tb ${R(q('.tb').getBoundingClientRect())} ; grid ${R(q('.tb__grid').getBoundingClientRect())} ; first two tools ${R(bs[0])} ${R(bs[1])} ; well ${R(q('.tb__well').getBoundingClientRect())}`);
+      }
+      else if (verb === 'layerbtns') { // every button under the layer list does something; Image Size 2K resizes the canvas
+        const eng = win.artstudio.engine, out = [];
+        const toasts = () => [...doc.querySelectorAll('.ps-toast')].map((t) => t.textContent).join(' / ');
+        for (const a of ['add', 'group', 'mask', 'adjust', 'fx', 'del']) {
+          const n0 = eng.layers.length, m0 = eng.layers.filter((l) => l.mask).length, t0 = toasts();
+          q(`[data-panel="layers"] [data-bottom] [data-a="${a}"]`).click(); await sleep(900);
+          const menu = [...doc.querySelectorAll('.dk-menu__label')].map((e) => e.textContent).slice(0, 3).join('|');
+          const dlg = q('.dk-dialog')?.getAttribute('aria-label') || q('[role=dialog]')?.getAttribute('aria-label') || '';
+          out.push(`${a}: layers ${n0}->${eng.layers.length} masks ${m0}->${eng.layers.filter((l) => l.mask).length}${menu ? ` menu[${menu}]` : ''}${dlg ? ` dialog[${dlg}]` : ''}${toasts() !== t0 ? ` toast[${toasts().slice(t0.length)}]` : ''}`);
+          doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); q('.dk-dialog .dk-btn:not(.dk-btn--primary)')?.click(); await sleep(200);
+        }
+        log.push('bottom buttons: ' + out.join(' ; '));
+        const before = `${eng.doc.w}x${eng.doc.h}`;
+        win.artstudio.dispatch('image.image_size', {}); await sleep(500);
+        q('.dk-dialog [data-preset="2K"]').click(); await sleep(100);
+        q('.dk-dialog .dk-btn--primary').click(); await sleep(2500);
+        log.push(`image size 2K: ${before} -> ${eng.doc.w}x${eng.doc.h} ; toasts=${toasts() || 'none'}`);
       }
       else if (verb === 'layerclicks') { // eye / lock change at once (no refresh) and stick after the save; the canvas follows
         const eng = win.artstudio.engine, L = eng.layers[0].id;

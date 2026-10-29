@@ -39,7 +39,7 @@ const field = (k) => byK(k).children[1]; // scrubField el = [label, input, unit]
 const typeInto = (inp, v) => { inp.value = String(v); inp.dispatch('blur'); }; // blur commits; Enter would also press the dialog's OK
 const mkCtx = (extra = {}) => {
   const calls = [];
-  return { calls, rpc: async (name, args) => { calls.push([name, args]); return { ok: true, id: 'd2' }; }, prefs: { get: () => null, set() {} }, ...extra };
+  return { calls, rpc: async (name, args) => { calls.push([name, args]); return { ok: true, id: 'd2' }; }, prefs: { get: () => null, set() {} }, store: { get: () => ({ doc: 'D1' }), set() {} }, ...extra };
 };
 
 // --- New Document ---
@@ -68,7 +68,8 @@ const { openCanvasSize } = await import('../ui/js/dialogs/canvas-size.js');
   typeInto(field('w'), 100);
   byText('OK').click();
   await p;
-  assert.deepEqual(ctx.calls, [['doc', { action: 'canvas_size', args: { w: 1100, h: 1000, anchor: 'center' } }]]);
+  // the open canvas is named (without `doc` the backend had nothing to resize)
+  assert.deepEqual(ctx.calls, [['doc', { action: 'canvas_size', doc: 'D1', args: { w: 1100, h: 1000, anchor: 'center' } }]]);
   const c2 = mkCtx({ docSize: () => ({ w: 1000, h: 1000 }) });
   const p2 = openCanvasSize(c2);
   typeInto(field('w'), 1200);
@@ -92,7 +93,19 @@ assert.equal(keepRatio(2, 800, 'w'), 400);
   byK('resample').value = 'nearest'; byK('resample').dispatch('change');
   byText('OK').click();
   await p;
-  assert.deepEqual(ctx.calls, [['doc', { action: 'image_size', args: { w: 800, h: 100, resample: 'nearest' } }]]);
+  assert.deepEqual(ctx.calls, [['doc', { action: 'image_size', doc: 'D1', args: { w: 800, h: 100, resample: 'nearest' } }]]);
+}
+{ // quick sizes: 2K / 4K keep the proportions, ×2 doubles, nothing past 4096
+  const { presetSize } = await import('../ui/js/dialogs/image-size.js');
+  assert.deepEqual(presetSize({ w: 1000, h: 500 }, 2048), { w: 2048, h: 1024 });
+  assert.deepEqual(presetSize({ w: 1000, h: 500 }, 4096), { w: 4096, h: 2048 });
+  assert.deepEqual(presetSize({ w: 3000, h: 1000 }, 0), { w: 4096, h: 1365 });
+  const ctx = mkCtx({ docSize: () => ({ w: 512, h: 256 }) });
+  const p = openImageSize(ctx);
+  byText('2K').click();
+  byText('OK').click();
+  await p;
+  assert.deepEqual(ctx.calls[0][1].args, { w: 2048, h: 1024, resample: 'bicubic' });
 }
 
 // --- Filters / Adjustments / Layer Style ---
