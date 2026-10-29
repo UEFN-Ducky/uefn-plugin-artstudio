@@ -1,7 +1,14 @@
 // node tests/ui_ai.test.mjs  (run from the plugin folder)
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { barModel, agentOptions, createTaskbar, NEW_AGENT, SELECTION_HINT } from '../ui/js/ai/taskbar.js';
+import { barModel, agentOptions, createTaskbar, dockParams, NEW_AGENT, SELECTION_HINT } from '../ui/js/ai/taskbar.js';
+// Ducky's docked chat (host chat.open): one conversation per artwork, told which artwork and how to work
+{
+  const p = dockParams('a62f3f', 'Sunset cabin');
+  assert.equal(p.key, 'doc:a62f3f'); assert.equal(p.place, 'bottom'); assert.equal(p.expanded, false);
+  assert.match(p.brief, /artwork a62f3f \("Sunset cabin"\)/); assert.match(p.brief, /artstudio_apply/);
+  assert.ok(p.brief.length <= 1500);
+}
 const taskbarSrc = readFileSync(new URL('../ui/js/ai/taskbar.js', import.meta.url), 'utf8');
 
 // picker: artwork agent first, known Ducky chats, then "+ New agent…"

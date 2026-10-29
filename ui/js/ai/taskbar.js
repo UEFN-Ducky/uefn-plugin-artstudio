@@ -26,6 +26,15 @@ export function sendParams({ doc, text, agent, selection, layer, tool }) {
   return p;
 }
 
+// Pure: Ducky's docked chat (host bridge `chat.open`) for one artwork: its own conversation, told what it works on.
+export function dockParams(doc, name = '') {
+  const brief = `You work on the Art Studio artwork ${doc}${name ? ` ("${name}")` : ''} with the artstudio_* tools ` +
+    '(find them with ducky_get_tools pattern "artstudio_"). Batch edits with artstudio_apply, look at your work with ' +
+    'artstudio_preview (output_dir = your chat\'s attachments folder) before you say it is done, and draw on new layers ' +
+    'instead of painting over the person\'s own unless they ask.';
+  return { key: `doc:${doc}`, title: 'Art Studio AI', brief, place: 'bottom', expanded: false };
+}
+
 export const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const firstLine = (t) => String(t || '').replace(/[*_`#>]/g, '').split('\n').map((l) => l.trim()).find(Boolean) || '';
 
@@ -148,12 +157,13 @@ export function mountTaskbar(root, { prefs, rpc, getDoc, getTool, toast }) {
   root.append(bar, pill);
 
   let shown = 0; // messages drawn, so the thread only re-renders (and scrolls) when something new came
+  let hostDock = false; // Ducky docks its own chat under the panel: this bar steps aside
   const tb = createTaskbar({
     prefs, rpc: rpc || w?.rpc,
     getDoc: getDoc || (() => w?.store?.get('doc') || ''),
     getTool: getTool || (() => w?.tools?.active?.id || w?.tools?.current?.() || ''),
     render(m) {
-      bar.hidden = m.collapsed; pill.hidden = !m.collapsed;
+      bar.hidden = m.collapsed || hostDock; pill.hidden = !m.collapsed || hostDock;
       picker.replaceChildren(...m.options.map((o) => { const op = d.createElement('option'); op.value = o.id; op.textContent = o.label; return op; }));
       picker.value = m.agent;
       status.textContent = m.working ? '● working' : '● idle';
@@ -194,12 +204,25 @@ export function mountTaskbar(root, { prefs, rpc, getDoc, getTool, toast }) {
   picker.addEventListener('focus', () => tb.loadAgents());
   w?.bus?.on?.('status', ({ ai }) => { if (ai) tb.update({ ai }); }); // Watch AI / progress drive idle|working
   w?.bus?.on?.('doc.rev', () => tb.noteEdit()); // each new op while the agent works counts as an edit
-  w?.bus?.on?.('doc', () => tb.pick(tb.state.agent)); // another artwork: its own agent's chat
+  w?.bus?.on?.('doc', () => { tb.pick(tb.state.agent); dock(); }); // another artwork: its own agent's chat
+  // Newer Ducky docks its real chat (messages, tool steps, composer) under the panel, one conversation per
+  // artwork; an older Ducky has no `chat.open` and this bar stays the chat.
+  const dock = async () => {
+    const doc = w?.store?.get('doc');
+    if (!doc || !w?.call) return;
+    const name = (w.store.get('docs') || []).find((x) => x.id === doc)?.name || '';
+    try {
+      const r = await w.call('chat.open', dockParams(doc, name));
+      hostDock = !!r?.open;
+    } catch { hostDock = false; }
+    tb.update({});
+  };
   const win = d.defaultView;
   win?.setInterval?.(() => tb.tick(), 1000); // the working timer
   win?.setInterval?.(() => { if (!bar.hidden && (tb.state.working || tb.state.expanded) && d.visibilityState !== 'hidden') tb.poll(); }, 2000);
   tb.update({});
   tb.loadAgents();
   tb.poll();
+  dock();
   return tb;
 }

@@ -72,7 +72,8 @@
       if (!h) throw new Error('unknown bridge method: ' + d.method);
       reply = { channel: CH, id: d.id, ok: true, result: await h(d.params || {}) };
     } catch (e) {
-      errors.push('bridge ' + d.method + ': ' + e.message);
+      // chat.* is a feature probe (newer Ducky docks its chat; this fake is the older host): an expected miss.
+      if (h || !String(d.method).startsWith('chat.')) errors.push('bridge ' + d.method + ': ' + e.message);
       reply = { channel: CH, id: d.id, ok: false, error: e.message };
     }
     frame.contentWindow.postMessage(reply, '*');
