@@ -60,7 +60,7 @@ export function fieldOp(layer, bounds, key, value) {
   return { kind: "filter", layer: id, args: { type: layer.adjust?.type, ...Object.fromEntries(Object.entries(layer.adjust?.params || {}).map(([k, p]) => [k, p.value])), [key]: value } };
 }
 
-export const sendField = (call, doc, op) => call("apply", { doc, ops: [{ ...op, by: { kind: "human", id: "me" } }] });
+export const sendField = (call, doc, op, id = "me") => call("apply", { doc, ops: [{ ...op, by: { kind: "human", id } }] });
 
 const CSS = `
 .as-props{display:flex;flex-direction:column;gap:8px;font-family:var(--font-ui);color:var(--fg)}
@@ -106,7 +106,7 @@ export function mount(el, ctx) {
       row.className = "as-props__row";
       const commit = (v) => {
         if (f.section === "selection") return ctx.dispatch?.("selection.feather", { value: v });
-        sendField(rpc, doc(), fieldOp(l, bounds, f.key, v));
+        sendField(rpc, doc(), fieldOp(l, bounds, f.key, v), ctx.selfId);
       };
       if (f.type === "scrub") row.append(scrubField({ label: f.label, value: f.value, min: f.min, max: f.max, unit: f.unit || "", onChange: commit }).el);
       else if (f.type === "color") row.append(Object.assign(document.createElement("span"), { textContent: f.label }), swatchButton({ value: f.value, onPick: commit, ctx }).el);

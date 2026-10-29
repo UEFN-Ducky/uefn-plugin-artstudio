@@ -30,6 +30,8 @@ const ACTIONS = {
   recipe: { ai_ui_kit: 'ui_kit', ai_icon_set: 'icon_set' },
 };
 export function translate(method, params = {}) {
+  // Panels also call by tool name (artstudio_catalog, artstudio_style_list, artstudio_ops_since): the RPC drops the prefix.
+  if (method.startsWith('artstudio_') && !ACTIONS.brush[method]) return translate(method.slice(10), params);
   const [head, ...rest] = method.split('_');
   if (head === 'doc' && ACTIONS.doc.includes(rest.join('_'))) return ['doc', { action: rest.join('_'), ...params }];
   if (head === 'style' && ACTIONS.style.includes(rest[0])) return ['style', { action: rest[0], ...params }];
@@ -37,7 +39,7 @@ export function translate(method, params = {}) {
   if (ACTIONS.recipe[method]) return ['recipe', { action: ACTIONS.recipe[method], ...params }];
   switch (method) {
     // The op log is a doc action: engine catch-up (undo/redo redraw), redo and the History panel all read it.
-    case 'ops_since': case 'artstudio_ops_since': return ['doc', { action: 'ops_since', ...params }];
+    case 'ops_since': return ['doc', { action: 'ops_since', ...params }];
     case 'open_image': { const { path, name, ...rest2 } = params; return ['doc', { ...rest2, action: 'open_image', args: { path, ...(name != null && { name }) } }]; }
     case 'retouch': { const { doc, layer, ops = [], ...rest2 } = params; return ['apply', { ...rest2, doc, ops: ops.map((o) => ({ ...o, layer: o.layer ?? layer })) }]; }
     case 'layer_set': return ['layer', { action: 'set', ...params }];

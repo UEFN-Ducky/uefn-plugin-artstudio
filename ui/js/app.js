@@ -37,8 +37,11 @@ const bus = {
   on(name, fn) { (handlers.get(name) || handlers.set(name, new Set()).get(name)).add(fn); },
   emit(name, args = {}) { (handlers.get(name) || []).forEach((f) => f(args)); },
 };
+// Who this panel's edits belong to. One id per install (not "me"): live sync tells our own echo from a teammate's
+// stroke by it, and Ctrl+Z / "Undo mine" undo only our edits.
+const selfId = prefs.get("author") || (() => { const id = `h-${crypto.randomUUID().slice(0, 8)}`; prefs.set("author", id); return id; })();
 // Panels and the engine get this: ctx.engine is set by the canvas panel.
-const ctx = { store, bus, rpc, call, tools, engine: null, dispatch: (name, args) => bus.emit("cmd", { name, ...args }) };
+const ctx = { store, bus, rpc, call, tools, selfId, engine: null, dispatch: (name, args) => bus.emit("cmd", { name, ...args }) };
 window.artstudio = ctx;
 
 const $ = (sel) => document.querySelector(sel);
@@ -77,7 +80,7 @@ ctx.createSync = (opts = {}) => createSync({
   },
   engine: { applyOp: (op) => ctx.engine?.applyOp?.(op), redrawPending: (ops) => ctx.engine?.redrawPending?.(ops) },
   doc: () => ({ id: store.get().doc, rev: 0, ...(ctx.docState?.() || {}) }),
-  selfId: "me",
+  selfId,
   toast,
   ...opts,
 });
@@ -91,7 +94,7 @@ const startPresence = (docId) => {
   const members = new Map();
   onEvent((e) => { if (e.type === "live.memberState") e.state ? members.set(e.from, { id: e.from, ...e.state }) : members.delete(e.from); });
   myPresence = presenceMod.createPresence({
-    selfId: "me", getLocks: () => ({}), getMembers: () => [...members.values()].map((m) => ({ id: m.id, label: m.label, kind: m.kind, state: m })),
+    selfId, getLocks: () => ({}), getMembers: () => [...members.values()].map((m) => ({ id: m.id, label: m.label, kind: m.kind, state: m })),
     toast, live: { set_my_state: (state) => call("live.setMyState", { state }) },
   });
   ctx.presence = myPresence;
@@ -167,7 +170,7 @@ bus.on("cmd", async ({ name, doc: id }) => {
   const d = store.get().docs.find((x) => x.id === id);
   const ok = await dialog({ title: "Delete artwork", ok: "Delete", body: (el) => { el.textContent = `Delete “${d?.name || id}” permanently? This can't be undone.`; } });
   if (!ok) return;
-  const out = await rpc("doc", { action: "delete", id }).catch((e) => ({ ok: false, error: e.message }));
+  const out = await rpc("doc", { action: "delete", doc: id }).catch((e) => ({ ok: false, error: e.message }));
   if (out?.ok === false) return toast(out.error || "Delete failed");
   closeTab(id);
   loadDocs();

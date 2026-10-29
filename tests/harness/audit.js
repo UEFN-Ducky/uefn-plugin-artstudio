@@ -43,6 +43,10 @@ export const STEPS = {
   // Ctrl+Z / Ctrl+Y as a person presses them: keydown on the focused canvas, then the pixels at the stroke
   ctrlz: [['key', 'b'], ['pix', 'before'], ['drag'], ['wait', 1500], ['pix', 'drawn'], ['canvaskey', 'z', { ctrlKey: true }], ['wait', 2500], ['pix', 'ctrl+z'],
     ['canvaskey', 'y', { ctrlKey: true }], ['wait', 2500], ['pix', 'ctrl+y'], ['ops'], ['hist']],
+  // live stroke after switching from a small doc to a big one reaches past 512 px; JS ink vs backend ink after a reload
+  bigdraw: [['opendoc', 'Small'], ['wait', 2500], ['key', 'b'], ['drag'], ['wait', 1000], ['opendoc', 'Big'], ['wait', 2500], ['hold'],
+    ['ink', 'js'], ['reload'], ['wait', 2500], ['ink', 'backend']],
+  teammate: [['wait', 1500], ['teammate']],
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = [];
@@ -92,6 +96,35 @@ export async function run(name, win) {
       else if (verb === 'key') doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: a, bubbles: true, ...(b || {}) }));
       else if (verb === 'canvaskey') { const c = q('[data-panel="canvas"] canvas'); c.focus(); c.dispatchEvent(new win.KeyboardEvent('keydown', { key: a, code: 'Key' + a.toUpperCase(), bubbles: true, cancelable: true, ...(b || {}) })); }
       else if (verb === 'wait') await sleep(a);
+      else if (verb === 'opendoc') { const A = win.artstudio, d = A.store.get().docs.find((x) => x.name === a); A.store.set({ doc: d.id }); }
+      else if (verb === 'reload') await win.artstudio.engine.load(win.artstudio.store.get().doc);
+      else if (verb === 'teammate') { // a teammate's stroke arrives over live sync while our own stroke is still being saved
+        const eng = win.artstudio.engine, did = win.artstudio.store.get().doc, L = eng.layers.at(-1).id;
+        const mate = { kind: 'human', id: new URLSearchParams(location.search).get('mate') || 'h-teammate', label: 'Ana' }; // ?mate=me = the old build, where every panel was "me"
+        const theirs = { kind: 'stroke', layer: L, by: mate, args: { pts: [[20, 200], [230, 200]], size: 12, color: '#' + '00'.repeat(3) } };
+        const r = await (await fetch('/rpc', { method: 'POST', body: JSON.stringify({ method: 'apply', params: { doc: did, ops: [theirs] } }) })).json();
+        const mine = eng.commit('stroke', L, { points: [[20, 40], [230, 40]], size: 12, color: '#' + '00'.repeat(3) }); // pending while it saves
+        eng.applyOp({ ...theirs, doc: did, rev: r.rev }); // the live echo of their op lands first
+        await mine; await sleep(800);
+        const at = (y) => eng.getPixels(L, { x: 120, y, w: 1, h: 1 }).data[0];
+        log.push(`self id ${eng.doc && win.artstudio.selfId}; teammate stroke drawn: ${at(200) < 60} (r=${at(200)}); my stroke drawn: ${at(40) < 60} (r=${at(40)})`);
+      }
+      else if (verb === 'hold') { // press, drag to doc (900,900) and check the live preview there BEFORE releasing
+        const eng = win.artstudio.engine, c = q('[data-panel="canvas"] canvas'), r = c.getBoundingClientRect(), v = eng.view;
+        const ev = (t, x, y) => c.dispatchEvent(new win.PointerEvent(t, { bubbles: true, pointerId: 1, pointerType: 'mouse', buttons: t === 'pointerup' ? 0 : 1, button: 0, clientX: r.x + x, clientY: r.y + y }));
+        const P = (d) => v.toScreen(d, d);
+        ev('pointerdown', P(100).x, P(100).y);
+        for (let i = 1; i <= 40; i++) { const p = P(100 + i * 20); ev('pointermove', p.x, p.y); }
+        await sleep(400);
+        const pv = eng.layerCanvas('__preview').getContext('2d').getImageData(890, 890, 21, 21).data;
+        let n = 0; for (let i = 3; i < pv.length; i += 4) if (pv[i]) n++;
+        log.push(`doc ${eng.doc.w}x${eng.doc.h}; live preview pixels near (900,900) while held: ${n}`);
+        const e = P(900); ev('pointerup', e.x, e.y); await sleep(1500);
+      } else if (verb === 'ink') {
+        const eng = win.artstudio.engine, L = eng.layers.at(-1).id, p = eng.getPixels(L);
+        let n = 0; for (let i = 0; i < p.w * p.h; i++) if (p.data[i * 4 + 3] && p.data[i * 4] < 60) n++;
+        log.push(`ink ${a}: ${n} dark px on ${L}`);
+      }
       else if (verb === 'hist') log.push('history rows: ' + [...doc.querySelectorAll('[data-panel="history"] .as-op')].map((r) => r.textContent.trim().replace(/\s+/g, ' ').slice(0, 30)).join(' | '));
       else if (verb === 'ops') { const r = await (await fetch('/rpc', { method: 'POST', body: JSON.stringify({ method: 'doc', params: { action: 'ops_since', doc: win.artstudio.store.get().doc, rev: 0 } }) })).json(); log.push('ops: ' + (r.ops || []).map((o) => `${o.rev}:${o.kind}${o.args?.target ? '>' + o.args.target : ''}@${o.by?.id}`).join(' ')); }
       else if (verb === 'probe') {

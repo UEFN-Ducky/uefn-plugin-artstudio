@@ -97,7 +97,7 @@ export function mount(el, ctx) {
   }
 
   const sendUndo = (op) => ctx.engine?.applyOp({
-    kind: "undo", layer: op.layer, args: { target: op.rev, author: op.by?.id }, by: { kind: selfKind(), id: ctx.live?.selfId || "me" },
+    kind: "undo", layer: op.layer, args: { target: op.rev, author: op.by?.id }, by: { kind: selfKind(), id: ctx.selfId || ctx.live?.selfId || "me" },
   });
 
   el.addEventListener("click", (ev) => {

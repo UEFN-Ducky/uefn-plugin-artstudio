@@ -552,10 +552,10 @@ export function createEngine({ rpc, call, by }) {
     /** Live stroke preview on a screen-space overlay canvas (cleared on commit). */
     preview(args) {
       if (!comp) return;
-      previewCv = previewCv || scratchOf();
+      // Always this doc's scratch: a cached one from an earlier, smaller doc clipped the live stroke to its size.
       const pc = comp.canvas('__preview');
       pc.getContext('2d').clearRect(0, 0, doc.w, doc.h);
-      drawStroke(pc.getContext('2d'), previewCv, { ...normStroke(args), erase: false });
+      drawStroke(pc.getContext('2d'), scratchOf(), { ...normStroke(args), erase: false });
       emit();
     },
     clearPreview() { comp?.clear('__preview'); emit(); },
@@ -754,7 +754,7 @@ export async function mount(el, ctx) {
   const cv = Object.assign(document.createElement('canvas'), { tabIndex: 0 });
   cv.style.cssText = 'width:100%;height:100%;display:block;touch-action:none';
   el.append(cv);
-  const eng = createEngine({ rpc: ctx.rpc, call: ctx.call, by: { kind: 'human', id: 'me', label: 'Me' } });
+  const eng = createEngine({ rpc: ctx.rpc, call: ctx.call, by: { kind: 'human', id: ctx.selfId || 'me', label: 'Me' } });
   ctx.engine = eng; eng.bindBus(ctx.bus);
   ctx.docSize = () => ({ w: eng.doc?.w ?? 0, h: eng.doc?.h ?? 0 });
   eng.onResize((s) => ctx.bus.emit('doc.resized', s));

@@ -96,7 +96,7 @@ export function mount(el, ctx) {
     layers = (typeof l === "function" ? l() : l) || [];
     if (!layers.some((x) => x.id === active)) active = layers[layers.length - 1]?.id || null;
   };
-  const by = () => ({ kind: "human", id: live().selfId || "me" });
+  const by = () => ({ kind: "human", id: ctx.selfId || live().selfId || "me" });
   // Optimistic local patch, then the same rpc the tool uses.
   // After every rpc: let the engine pull the new ops (idempotent), then redraw.
   const synced = (p) => Promise.resolve(p).then(() => ctx.engine?.catchUp?.()).catch(() => {}).then(schedule);
