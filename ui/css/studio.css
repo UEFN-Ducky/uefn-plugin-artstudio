@@ -17,6 +17,8 @@ html { overflow: hidden; } /* the studio fills the panel; nothing scrolls the pa
   background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
 .studio__project > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .studio__project:hover, .studio__project[aria-expanded="true"] { border-color: var(--accent); }
+.studio__cmd { flex: none; height: 24px; padding: 0 10px; background: none; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font: inherit; }
+.studio__cmd:hover { color: var(--fg); border-color: var(--accent); }
 /* document tabs share the bar: compact pills that scroll sideways, + (New) at the right */
 .studio__doctabs { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .studio__doctabs::-webkit-scrollbar { display: none; }

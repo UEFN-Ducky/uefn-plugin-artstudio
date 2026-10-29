@@ -20,7 +20,7 @@ import * as newDocDialog from "./dialogs/new-doc.js";
 import * as taskbar from "./ai/taskbar.js";
 import * as aiActions from "./ai/ai-actions.js";
 import { dialog } from "./ui/dialog.js";
-import { openMenu } from "./ui/menu.js";
+import { openBrowser } from "./dialogs/browser.js";
 import * as feedback from "./feedback/popup.js";
 import * as chatDrawer from "./chat/drawer.js";
 import { openShortcutsDialog } from "./dialogs/shortcuts.js";
@@ -198,18 +198,33 @@ ctx.projects = {
     loadDocs();
   },
 };
-function openProjectMenu(btn) {
-  const { projects, project } = store.get(), cur = projects.find((p) => p.id === project);
-  const r = btn.getBoundingClientRect();
-  btn.setAttribute("aria-expanded", "true");
-  openMenu([
-    ...projects.map((p) => ({ label: p.name, shortcut: String(p.canvases ?? ""), checked: p.id === project, run: () => switchProject(p.id) })),
-    { sep: true },
-    { label: "New Project…", run: () => ctx.projects.create() },
-    { label: "Rename Project…", run: () => ctx.projects.rename() },
-    { label: "Delete Project…", disabled: !!cur?.canvases, shortcut: cur?.canvases ? "empty only" : "", run: () => ctx.projects.remove() },
-  ], { x: r.left, y: r.bottom + 4, onClose: () => btn.setAttribute("aria-expanded", "false") });
-}
+// The project button opens the canvas browser (projects, canvases, new / open), like Forge's scene browser.
+ctx.openBrowser = (opts) => openBrowser(ctx, opts);
+// Ctrl+K: every command (the lean top bar has no dropdown menus); Ctrl+Shift+O: the browser.
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "")) return;
+  const k = (e.key || "").toLowerCase();
+  if (k === "k" && !e.shiftKey) { e.preventDefault(); ctx.openPalette?.(); }
+  else if (k === "o" && e.shiftKey) { e.preventDefault(); ctx.openBrowser(); }
+});
+
+// Browser thumbnails: a small picture of each canvas, taken while it is open (kept across reloads).
+const thumbs = new Map();
+ctx.thumbOf = (id) => thumbs.get(id) || prefs.get(`thumb.${id}`) || "";
+let thumbTimer = 0;
+const captureThumb = () => {
+  const eng = ctx.engine, id = eng?.doc?.id, src = eng?.thumbnail?.(200);
+  if (!id || !src) return;
+  const c = Object.assign(document.createElement("canvas"), { width: src.width, height: src.height });
+  c.getContext("2d").drawImage(src, 0, 0);
+  const url = c.toDataURL("image/webp", 0.75);
+  thumbs.set(id, url); prefs.set(`thumb.${id}`, url);
+};
+const watchThumbs = () => {
+  if (!ctx.engine?.onChange) return setTimeout(watchThumbs, 500);
+  ctx.engine.onChange(() => { clearTimeout(thumbTimer); thumbTimer = setTimeout(captureThumb, 1500); });
+};
+watchThumbs();
 
 // One pill per open doc: name, dirty dot, close ×. Right-click emits doctab.context for the menu seat.
 function renderTabs() {
@@ -294,7 +309,8 @@ document.addEventListener("click", (ev) => {
   const close = ev.target.closest("[data-doc-close]")?.dataset.docClose;
   const tab = ev.target.closest("[data-doc-tab]")?.dataset.docTab;
   const proj = ev.target.closest("[data-project-menu]");
-  if (proj) return openProjectMenu(proj);
+  if (proj) return ctx.openBrowser({ tab: "canvases" });
+  if (a === "palette") return ctx.openPalette?.();
   if (close) return closeTab(close);
   if (tab) store.set({ doc: tab });
   if (a === "new") newDoc();

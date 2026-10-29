@@ -53,6 +53,7 @@ export const STEPS = {
   aichat: [['wait', 1200], ['aichat']],
   layerclicks: [['wait', 1500], ['layerclicks']],
   layerbtns: [['wait', 1500], ['layerbtns']],
+  topbar: [['wait', 1500], ['topbar']],
   toolpop: [['wait', 1200], ['key', 'b'], ['ctx', '[data-panel="canvas"] canvas'], ['wait', 300], ['toolpop']],
   toolpopfill: [['wait', 1200], ['key', 'g'], ['ctx', '[data-panel="canvas"] canvas'], ['wait', 300], ['toolpop']],
 };
@@ -148,6 +149,20 @@ export async function run(name, win) {
         log.push(`toolbar: ${bs.length} tools, overlapping pairs=${hits}, outside the card=${out}`);
         const R = (r) => `${Math.round(r.left)}..${Math.round(r.right)}`;
         log.push(`card ${R(card)} ; toolbar section ${R(q('[data-panel="toolbar"]').getBoundingClientRect())} ; .tb ${R(q('.tb').getBoundingClientRect())} ; grid ${R(q('.tb__grid').getBoundingClientRect())} ; first two tools ${R(bs[0])} ${R(bs[1])} ; well ${R(q('.tb__well').getBoundingClientRect())}`);
+      }
+      else if (verb === 'topbar') { // lean top bar: no dropdown menus; palette searches commands; browser lists projects / canvases
+        const bar = q('.studio__bar');
+        log.push(`top bar: ${[...bar.querySelectorAll('button,span.mb__brand')].filter((e) => e.getClientRects().length).map((e) => e.textContent.trim().replace(/\s+/g, ' ').slice(0, 18)).join(' | ')} ; dropdown menus=${bar.querySelectorAll('[data-menu]').length}`);
+        q('[data-act="palette"]').click(); await sleep(150);
+        const total = doc.querySelectorAll('.as-pal__row').length;
+        const s = q('.as-pal__search'); s.value = 'canvas size'; s.dispatchEvent(new win.Event('input')); await sleep(80);
+        log.push(`palette: ${total} commands; "canvas size" -> ${[...doc.querySelectorAll('.as-pal__row')].map((r) => r.dataset.path).join(' | ')}`);
+        doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(80);
+        q('[data-project-menu]').click(); await sleep(300);
+        const cards = () => [...doc.querySelectorAll('.as-br__card')].map((c) => c.querySelector('.as-br__name').textContent);
+        const c1 = cards();
+        q('[data-brtab="projects"]').click(); await sleep(100);
+        log.push(`browser: canvases=[${c1}] projects=[${cards()}] palette closed=${!q('.as-pal')}`);
       }
       else if (verb === 'layerbtns') { // every button under the layer list does something; Image Size 2K resizes the canvas
         const eng = win.artstudio.engine, out = [];

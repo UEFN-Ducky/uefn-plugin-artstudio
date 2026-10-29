@@ -2,7 +2,7 @@
 // openMenu (keyboard, flyout submenus, shortcut hints); items call ctx.dispatch commands (the U4 router).
 import { icon } from './toolbar.js';
 import { confirm } from '../core/bridge.js';
-import { openMenu } from '../ui/menu.js';
+import { flatten, openPalette } from '../ui/palette.js';
 
 // Backend panel RPCs. Names the other seats register; change here if one is renamed.
 const RPC = {
@@ -30,10 +30,7 @@ const title = (s) => s.replace(/(^|_)(\w)/g, (_, d, c) => (d ? ' ' : '') + c.toU
 
 const CSS = `
 .mb{display:flex;align-items:center;gap:4px;font-family:var(--font-ui);font-size:12px;color:var(--fg)}
-.mb__top{padding:4px 12px;background:none;color:var(--fg);border:1px solid transparent;border-radius:999px;cursor:pointer;font:inherit}
-.mb__top:hover{background:var(--card);border-color:var(--border)}
-.mb__top[aria-expanded="true"]{background:var(--card);border-color:var(--accent);color:var(--accent)}
-.mb__status{margin-left:8px;color:var(--muted);max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mb__brand{padding:0 6px;font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--muted);white-space:nowrap}
 .mb__ask{position:fixed;inset:0;z-index:3000;display:flex;align-items:center;justify-content:center;background:var(--bg)}
 .mb__ask>div{display:flex;flex-direction:column;gap:8px;width:360px;max-width:90vw}
 .mb button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -51,7 +48,7 @@ export function mount(el, ctx) {
   let open = null;      // {name, close}
   let busy = false;
   const doc = () => ctx.store.get().doc;
-  const say = (msg) => { el.querySelector('[data-status]').textContent = msg; };
+  const say = (msg) => { if (!/…$/.test(msg)) ctx.toast?.(msg, /failed|Busy/.test(msg) ? 'error' : 'ok'); }; // no status strip in the lean top bar
   const rpc = (name, params) => ctx.rpc(name, params);
   // run.cmd names the router command, so tests can check every item against COMMANDS
   const go = (cmd, args) => Object.assign(() => ctx.dispatch(cmd, { doc: doc(), ...args }), { cmd });
@@ -117,6 +114,7 @@ export function mount(el, ctx) {
     File: [
       { label: 'New…', shortcut: 'Ctrl+N', run: go('doc.new') },
       { label: 'New Project…', run: go('project.new') },
+      { label: 'Browse Canvases & Projects…', shortcut: 'Ctrl+Shift+O', run: go('doc.browse') },
       { label: 'Open…', shortcut: 'Ctrl+O', run: go('doc.open') },
       { sep: 1 },
       { label: 'Save', shortcut: 'Ctrl+S', needsDoc: 1, run: go('doc.save') },
@@ -214,32 +212,8 @@ export function mount(el, ctx) {
     ...it, disabled: it.disabled || (it.needsDoc && !hasDoc), sub: it.sub && prep(it.sub, hasDoc),
   }));
 
-  function closeMenu() {
-    open?.close();
-    open = null;
-    el.querySelectorAll('.mb__top').forEach((b) => b.setAttribute('aria-expanded', 'false'));
-  }
-
-  function openTop(name, anchor) {
-    const same = open?.name === name;
-    closeMenu();
-    if (same) return;
-    anchor.setAttribute('aria-expanded', 'true');
-    const r = anchor.getBoundingClientRect();
-    const m = openMenu(prep(menus()[name], !!doc()), { x: r.left, y: r.bottom + 4, onClose: () => { if (open?.name === name) closeMenu(); } });
-    open = { name, close: m.close };
-  }
-
-  el.innerHTML = `<div class="mb" role="menubar" aria-label="Menu">${Object.keys(menus()).map((n) =>
-    `<button class="mb__top" role="menuitem" aria-haspopup="menu" aria-expanded="false" data-menu="${n}">${n}${n === 'AI' ? ` ${icon('wand', 12)}` : ''}</button>`).join('')}<span class="mb__status" role="status" data-status></span></div>`;
-
-  el.addEventListener('click', (ev) => {
-    const b = ev.target.closest('[data-menu]');
-    if (b) openTop(b.dataset.menu, b);
-  });
-  // hovering across the bar switches the open menu, like a desktop menu bar
-  el.addEventListener('mouseover', (ev) => {
-    const b = ev.target.closest?.('[data-menu]');
-    if (b && open && open.name !== b.dataset.menu) openTop(b.dataset.menu, b);
-  });
+  // Lean top bar (like Forge): no dropdown menus; every command lives in the palette (Ctrl+K / Commands).
+  ctx.commandRows = () => flatten(Object.fromEntries(Object.entries(menus()).map(([g, items]) => [g, prep(items, !!doc())])), !!doc());
+  ctx.openPalette = (query = '') => openPalette({ rows: ctx.commandRows, query });
+  el.innerHTML = '<div class="mb"><span class="mb__brand" aria-label="AI Art Studio">ART STUDIO</span></div>';
 }

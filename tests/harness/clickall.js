@@ -88,14 +88,13 @@ export async function clickall(win, log, sect) {
       for (const path of leaves) {
         await ensureDoc(); await cleanup();
         await act(`${top} > ${path.join(' > ')}`, 'click', async () => {
-          q(`[data-menu="${top}"]`).click(); await sleep(80);
-          for (let i = 0; i < path.length; i++) {
-            const el = qa('.dk-menu__item').find((e) => vis(e) && txt(q('.dk-menu__label', e) || e).startsWith(path[i])); // label, not the ✓ of a checked Window item
-            if (!el) throw new Error('item not shown: ' + path[i]);
-            if (el.classList.contains('is-disabled')) throw new Error('disabled');
-            el.dispatchEvent(new win.PointerEvent('pointerenter', { bubbles: true }));
-            if (i === path.length - 1) el.click(); else await sleep(120);
-          }
+          // no dropdown menus any more: every command is a row of the Commands palette (Ctrl+K)
+          q('[data-act="palette"]').click(); await sleep(80);
+          const want = [top, ...path].join(' > ');
+          const el = qa('.as-pal__row').find((e) => e.dataset.path === want);
+          if (!el) throw new Error('not in the palette: ' + want);
+          if (el.disabled) throw new Error('disabled');
+          el.click();
         });
       }
     },
