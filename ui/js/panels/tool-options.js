@@ -28,7 +28,55 @@ const CSS = `
 .to__thumb{width:24px;height:24px;border-radius:50%}
 .to__pick button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
 .to button:focus-visible,.to input:focus-visible,.to select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+/* right-click popover: one styled card, sliders / chips / toggles / preview tiles, no plain inputs or dropdowns */
+.to.to--pop{flex-direction:column;align-items:stretch;flex-wrap:nowrap;gap:12px;width:268px;padding:4px 2px;min-height:0;font-size:12px}
+.to__head{display:flex;align-items:center;gap:8px;font-weight:600;color:var(--fg)}
+.to__head svg{color:var(--accent)}
+.to__sec{display:flex;flex-direction:column;gap:6px}
+.to__cap{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.to__tiles{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x mandatory;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.to__tiles::-webkit-scrollbar{height:4px}.to__tiles::-webkit-scrollbar-track{background:transparent}
+.to__tiles::-webkit-scrollbar-thumb{background:var(--border);border-radius:999px}
+.to__tile{flex:none;width:72px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 4px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:10px;cursor:pointer;scroll-snap-align:start;font:inherit;font-size:10px}
+.to__tile:hover{border-color:var(--fg)}
+.to__tile[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+.to__tile svg{display:block}
+.to__slider{display:flex;flex-direction:column;gap:4px}
+.to__slider>div{display:flex;justify-content:space-between;align-items:baseline}
+.to__slider span{color:var(--muted)}
+.to__slider b{font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums}
+.to__range{-webkit-appearance:none;appearance:none;width:100%;height:6px;margin:4px 0;border-radius:999px;outline:none;cursor:pointer}
+.to__range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--fg);border:2px solid var(--accent);cursor:grab}
+.to__range::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--fg);border:2px solid var(--accent);cursor:grab}
+.to__chips{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+.to__chips button{flex:none;padding:4px 10px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:999px;cursor:pointer;font:inherit;font-size:11px}
+.to__chips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.to__toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}
+.to__toggle input{position:absolute;opacity:0;width:1px;height:1px}
+.to__switch{position:relative;flex:none;width:30px;height:16px;border-radius:999px;background:var(--border);transition:background .15s}
+.to__switch::after{content:"";position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--fg);transition:left .15s}
+.to__toggle input:checked+.to__switch{background:var(--accent)}
+.to__toggle input:checked+.to__switch::after{left:16px}
+.to__toggle input:focus-visible+.to__switch{outline:2px solid var(--accent);outline-offset:2px}
+.to__sec.to__color{flex-direction:row;align-items:center;justify-content:space-between}
+.to__color .dk-swatch{width:44px;height:24px;border-radius:8px;border:1px solid var(--border);cursor:pointer}
 `;
+const ensureCss = () => {
+  if (!document.getElementById || !document.head || document.getElementById('to-css')) return; // node test DOMs have no head
+  const st = document.createElement('style');
+  st.id = 'to-css';
+  st.textContent = CSS;
+  document.head.append(st);
+};
+
+// A preset's look as a small stroke: width from size, softness from hardness, alpha from opacity (currentColor, no literals).
+export function presetSvg(p) {
+  const w = Math.max(2, Math.min(10, Math.round(p.size / 6))), blur = ((100 - p.hardness) / 100) * 2.2, id = `to-soft-${p.id}`;
+  const dash = p.shape === 'square' ? ' stroke-dasharray="2 1.5"' : '';
+  return `<svg width="60" height="28" viewBox="0 0 60 28" aria-hidden="true">${blur ? `<filter id="${id}"><feGaussianBlur stdDeviation="${blur.toFixed(2)}"/></filter>` : ''}` +
+    `<path d="M6 20 C 16 4, 26 4, 32 14 S 48 26, 54 8" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="${p.shape === 'square' ? 'butt' : 'round'}"` +
+    ` opacity="${(p.opacity / 100).toFixed(2)}"${dash}${blur ? ` filter="url(#${id})"` : ''}/></svg>`;
+}
 
 // Field descriptors per tool. kind: num (scrubby) | check | select | seg | btn | color
 const num = (k, text, min, max, unit = '') => ({ kind: 'num', k, text, min, max, unit });
@@ -89,47 +137,71 @@ export function renderToolOptions(el, ctx, toolId = getActive()) {
     if (text !== undefined) n.textContent = text;
     return n;
   };
+  ensureCss();
   const wrap = mk('div', 'to to--pop');
   wrap.setAttribute('role', 'group');
   wrap.setAttribute('aria-label', `${variantName(toolId)} options`);
+  const head = mk('div', 'to__head'); head.innerHTML = icon(toolId, 18); head.append(mk('span', '', variantName(toolId)));
+  wrap.append(head);
   const custom = ctx.toolOptionsFor?.[toolId] || ctx.toolOptionsFor?.[getTool(toolId)?.parent];
   let specs = custom ? [] : specFor(toolId).filter((s) => s.k !== 'blendMode' && s.kind !== 'btn');
   if (isBrushTool(toolId) && !custom) specs.push({ kind: 'color', k: 'foreground', text: 'Color' });
   if (!specs.length) wrap.append(mk('span', 'to__none', 'No options'));
+  const sliders = {}; // key -> {range, val, unit}: a preset pick moves them
+  const paintRange = (r) => { const p = ((r.value - r.min) / (r.max - r.min || 1)) * 100; if (r.style) r.style.background = `linear-gradient(to right, var(--accent) ${p}%, var(--border) ${p}%)`; };
+  const setSlider = (k, v) => { const s = sliders[k]; if (!s) return; s.range.value = String(v); s.val.textContent = `${v}${s.unit}`; paintRange(s.range); };
   for (const s of specs) {
+    const sec = mk('div', 'to__sec');
     if (s.kind === 'num') {
-      wrap.append(scrubField({
-        label: s.text, value: Number(read(s.k)) || 0, min: s.min, max: s.max, unit: s.unit,
-        onInput: (v) => writeOption(brush, s.k, v), onChange: (v) => writeOption(brush, s.k, v),
-      }).el);
-      continue;
-    }
-    const row = mk('div', 'to__opt');
-    if (s.kind === 'check') {
-      const i = mk('input'); i.type = 'checkbox'; i.checked = !!read(s.k);
+      sec.className = 'to__slider';
+      const top = mk('div'); const val = mk('b', '', `${Number(read(s.k)) || 0}${s.unit}`);
+      top.append(mk('span', '', s.text), val);
+      const r = mk('input', 'to__range'); r.type = 'range'; r.min = String(s.min); r.max = String(s.max); r.step = '1';
+      r.value = String(Number(read(s.k)) || 0); r.setAttribute('aria-label', s.text);
+      const put = () => { val.textContent = `${r.value}${s.unit}`; paintRange(r); writeOption(brush, s.k, Number(r.value)); };
+      r.addEventListener('input', put); r.addEventListener('change', put);
+      r.addEventListener('wheel', (e) => { e.preventDefault(); r.value = String(Number(r.value) + (e.deltaY < 0 ? 1 : -1)); put(); }, { passive: false });
+      paintRange(r); sliders[s.k] = { range: r, val, unit: s.unit };
+      sec.append(top, r);
+    } else if (s.kind === 'check') {
+      const lab = mk('label', 'to__toggle'), i = mk('input');
+      i.type = 'checkbox'; i.checked = !!read(s.k);
       i.addEventListener('change', () => writeOption(brush, s.k, i.checked));
-      row.append(i, mk('span', '', s.text));
-    } else if (s.kind === 'select' || s.kind === 'picker') {
-      const opts = s.kind === 'picker' ? BRUSH_PRESETS.map((p) => [p.id, p.name]) : s.opts.map((o) => [o, label(o)]);
-      const k = s.kind === 'picker' ? 'preset' : s.k;
-      const sel = mk('select', 'dk-input');
-      for (const [v, t] of opts) { const o = mk('option', '', t); o.value = v; sel.append(o); }
-      sel.value = read(k) ?? s.opts?.[0];
-      sel.addEventListener('change', () => (k === 'preset' ? brush.set({ preset: sel.value }) : writeOption(brush, k, sel.value)));
-      row.append(mk('span', '', s.kind === 'picker' ? 'Preset' : s.text), sel);
-    } else if (s.kind === 'seg') {
-      row.className = 'to__seg';
-      for (const v of s.vals) {
-        const b = mk('button', '', label(v));
-        b.dataset.seg = s.k; b.setAttribute('aria-pressed', String(read(s.k) === v));
-        b.addEventListener('click', () => { writeOption(brush, s.k, v); row.children.forEach((c) => c.setAttribute('aria-pressed', String(c === b))); });
-        row.append(b);
+      lab.append(mk('span', '', s.text), i, mk('span', 'to__switch')); // input right before its switch: :checked + .to__switch
+      sec.append(lab);
+    } else if (s.kind === 'picker') {
+      const tiles = mk('div', 'to__tiles'); tiles.setAttribute('role', 'listbox'); tiles.setAttribute('aria-label', 'Brush presets');
+      const all = [];
+      const mark = () => all.forEach((t) => t.setAttribute('aria-pressed', String(t.dataset.preset === brush.get().preset)));
+      for (const p of BRUSH_PRESETS) {
+        const t = mk('button', 'to__tile'); t.dataset.preset = p.id; t.title = p.name; all.push(t);
+        t.innerHTML = presetSvg(p); t.append(mk('span', '', p.name));
+        t.addEventListener('click', () => { // like Photoshop: a preset brings its size, hardness, opacity and flow
+          const v = { preset: p.id, size: p.size, hardness: p.hardness, spacing: p.spacing, opacity: p.opacity, flow: p.flow };
+          brush.set(v);
+          for (const k of ['size', 'hardness', 'opacity', 'flow']) setSlider(k, v[k]);
+          mark();
+        });
+        tiles.append(t);
       }
+      mark();
+      sec.append(mk('span', 'to__cap', 'Brush'), tiles);
+    } else if (s.kind === 'select' || s.kind === 'seg') {
+      const chips = mk('div', 'to__chips'); chips.setAttribute('role', 'group'); chips.setAttribute('aria-label', s.text);
+      const btns = [];
+      for (const v of s.opts || s.vals) {
+        const b = mk('button', '', label(v)); btns.push(b);
+        b.dataset.seg = s.k; b.dataset.v = v; b.setAttribute('aria-pressed', String((read(s.k) ?? (s.opts || s.vals)[0]) === v));
+        b.addEventListener('click', () => { writeOption(brush, s.k, v); btns.forEach((c) => c.setAttribute('aria-pressed', String(c === b))); });
+        chips.append(b);
+      }
+      sec.append(mk('span', 'to__cap', s.text), chips);
     } else if (s.kind === 'color') {
+      sec.className = 'to__sec to__color';
       const sw = swatchButton({ value: ctx.color?.get?.()[s.k] || '#000000', ctx, onPick: (v) => ctx.color?.set?.({ [s.k]: v }) });
-      row.append(mk('span', '', s.text), sw.el);
+      sec.append(mk('span', 'to__cap', s.text || 'Color'), sw.el);
     }
-    wrap.append(row);
+    wrap.append(sec);
   }
   el.append(wrap);
   return wrap;
@@ -151,12 +223,7 @@ function html(s, ctx) {
 }
 
 export function mount(el, ctx) {
-  if (!document.getElementById('to-css')) {
-    const st = document.createElement('style');
-    st.id = 'to-css';
-    st.textContent = CSS;
-    document.head.append(st);
-  }
+  ensureCss();
   const brush = (ctx.brush ??= createStore({ ...DEFAULT_BRUSH, preset: 'basic-round' }));
   const read = (k) => (k in DEFAULT_BRUSH ? brush.get()[k] : toolOptions.get()[k]);
   let fields = {};      // data-scrub key -> scrubField

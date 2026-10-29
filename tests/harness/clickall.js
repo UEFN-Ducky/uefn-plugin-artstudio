@@ -115,7 +115,7 @@ export async function clickall(win, log, sect) {
         if (!inp && !chk && !seg) { row(t.name, 'right-click', qa('.dk-menu__item', pop).length ? true : 'tool has no options (canvas menu only)', 'popover with no options: ' + txt(pop).slice(0, 40)); await cleanup(); continue; }
         const s0 = snap();
         if (inp?.tagName === 'SELECT') { inp.selectedIndex = (inp.selectedIndex + 1) % inp.options.length; inp.dispatchEvent(new win.Event('change', { bubbles: true })); }
-        else if (inp) commit(inp, (Number(inp.value) || 10) + 7);
+        else if (inp) { const v = (Number(inp.value) || 10) + 7; commit(inp, inp.type === 'range' && v > Number(inp.max) ? Number(inp.value) - 7 : v); } // a slider at its max moves down
         else if (chk) chk.click(); else seg.click();
         await sleep(150);
         row(t.name, 'right-click option', snap().opt !== s0.opt, `${qa('label,span', pop).length ? txt(pop).slice(0, 60) : ''} store ${snap().opt !== s0.opt ? 'changed' : 'unchanged'}`);

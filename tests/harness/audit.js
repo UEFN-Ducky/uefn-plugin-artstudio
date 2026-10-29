@@ -50,6 +50,8 @@ export const STEPS = {
   dockclose: [['wait', 1500], ['dockclose']],
   projects: [['wait', 1500], ['projects']],
   strip: [['wait', 1200], ['strip']],
+  toolpop: [['wait', 1200], ['key', 'b'], ['ctx', '[data-panel="canvas"] canvas'], ['wait', 300], ['toolpop']],
+  toolpopfill: [['wait', 1200], ['key', 'g'], ['ctx', '[data-panel="canvas"] canvas'], ['wait', 300], ['toolpop']],
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = [];
@@ -143,6 +145,14 @@ export async function run(name, win) {
         log.push(`toolbar: ${bs.length} tools, overlapping pairs=${hits}, outside the card=${out}`);
         const R = (r) => `${Math.round(r.left)}..${Math.round(r.right)}`;
         log.push(`card ${R(card)} ; toolbar section ${R(q('[data-panel="toolbar"]').getBoundingClientRect())} ; .tb ${R(q('.tb').getBoundingClientRect())} ; grid ${R(q('.tb__grid').getBoundingClientRect())} ; first two tools ${R(bs[0])} ${R(bs[1])} ; well ${R(q('.tb__well').getBoundingClientRect())}`);
+      }
+      else if (verb === 'toolpop') { // right-click tool options: sliders / tiles / chips / toggles only, a preset tile sets size
+        const pop = [...doc.querySelectorAll('.dk-popover')].at(-1);
+        if (!pop) { log.push('toolpop: no popover'); continue; }
+        const n = (s) => pop.querySelectorAll(s).length;
+        log.push(`toolpop: sliders=${n('input[type=range]')} tiles=${n('.to__tile')} chips=${n('.to__chips button')} toggles=${n('.to__toggle')} selects=${n('select')} numberInputs=${n('input[type=number],input[type=text],input:not([type])')}`);
+        const soft = pop.querySelector('[data-preset="soft-round"]');
+        if (soft) { soft.click(); await sleep(100); log.push(`after Soft Round tile: brush size=${win.artstudio.brush.get().size} hardness=${win.artstudio.brush.get().hardness} sizeLabel=${[...pop.querySelectorAll('.to__slider b')][0]?.textContent}`); }
       }
       else if (verb === 'reload') await win.artstudio.engine.load(win.artstudio.store.get().doc);
       else if (verb === 'teammate') { // a teammate's stroke arrives over live sync while our own stroke is still being saved
