@@ -13,7 +13,6 @@ export function tabItems(docId, ctx) {
     { label: "Duplicate", run: go("doc.duplicate") },
     { label: "Move to Project", disabled: !targets.length, sub: targets.map((p) => ({ label: p.name, run: () => ctx.projects?.move(docId, p.id) })) },
     { sep: true },
-    { label: "Reveal in Versions", run: go("doc.revealVersions") },
     { label: "Delete artwork…", run: go("doc.delete") },
   ];
 }

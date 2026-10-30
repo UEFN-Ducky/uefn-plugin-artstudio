@@ -4,16 +4,15 @@
 import { promptText } from './ai-actions.js';
 
 const PREF = 'aibar';
-export const NEW_AGENT = '__new';
 export const SELECTION_HINT = 'edit only inside the selection';
 const MAX_WORK_MS = 15 * 60 * 1000; // ponytail: no host "busy" flag; after 15 min without a reply the line stops counting
 
-// Pure: picker entries. '' = the artwork's own agent (default), then known Ducky chats, then "+ New agent…".
+// Pure: picker entries. '' = the artwork's own agent (default), then known Ducky chats. The panel never spawns agents.
 // A picked agent missing from the list (still loading, or renamed) stays selectable instead of blanking the picker.
 export function agentOptions(agents = [], current = '') {
   const known = (agents || []).filter((a) => a && a.id).map((a) => ({ id: String(a.id), label: a.label || a.name || String(a.id) }));
-  const keep = current && current !== NEW_AGENT && !known.some((a) => a.id === current) ? [{ id: current, label: 'Chosen agent' }] : [];
-  return [{ id: '', label: 'Artwork agent' }, ...known, ...keep, { id: NEW_AGENT, label: '+ New agent…' }];
+  const keep = current && !known.some((a) => a.id === current) ? [{ id: current, label: 'Chosen agent' }] : [];
+  return [{ id: '', label: 'Artwork agent' }, ...known, ...keep];
 }
 
 // Pure: the `chat send` params. context = selection box, active layer, tool (+ hint when a selection exists).
@@ -21,8 +20,7 @@ export function sendParams({ doc, text, agent, selection, layer, tool }) {
   const context = { selection: selection || null, layer: layer || null, tool: tool || null };
   if (selection) context.hint = SELECTION_HINT;
   const p = { action: 'send', doc, text, context };
-  if (agent === NEW_AGENT) p.new_agent = true;
-  else if (agent) p.conv_id = agent;
+  if (agent) p.conv_id = agent;
   return p;
 }
 
@@ -90,7 +88,8 @@ export function barModel({ collapsed, agent, agents, status, thread = [], expand
 // update(ctx) is the shell's refresh: ctx.selection (box|null), ctx.layer, ctx.ai ('working'|'idle') are remembered.
 export function createTaskbar({ render, prefs, rpc, getDoc = () => '', getTool = () => '', now = () => Date.now() }) {
   const saved = prefs?.get(PREF) || {};
-  const s = { collapsed: !!saved.collapsed, agent: saved.agent || '', expanded: !!saved.expanded, cleared: saved.cleared || {},
+  // '__new': a pick saved by the old spawn-an-agent option; it falls back to the artwork agent
+  const s = { collapsed: !!saved.collapsed, agent: saved.agent === '__new' ? '' : saved.agent || '', expanded: !!saved.expanded, cleared: saved.cleared || {},
     agents: [], ctx: {}, sending: false, thread: [], conv: '', chatWorking: false, sentAt: 0, doneMs: 0, edits: 0 };
   const save = () => prefs?.set(PREF, { collapsed: s.collapsed, agent: s.agent, expanded: s.expanded, cleared: s.cleared });
   const visible = () => s.thread.filter((m) => (m.i ?? 0) >= (s.cleared[s.conv] || 0));
@@ -118,8 +117,7 @@ export function createTaskbar({ render, prefs, rpc, getDoc = () => '', getTool =
       try {
         const out = await rpc('chat', sendParams({ doc: getDoc(), text: t, agent: s.agent, selection: s.ctx.selection, layer: s.ctx.layer?.id ?? s.ctx.layer, tool: getTool() }));
         if (out?.ok !== false) {
-          if (s.agent === NEW_AGENT && out?.conv_id) s.agent = out.conv_id;
-          else if (out?.note && s.agent) s.agent = ''; // the chosen chat was gone or refused: the artwork agent took it
+          if (out?.note && s.agent) s.agent = ''; // the chosen chat was gone or refused: the artwork agent took it
           s.conv = out?.conv_id || s.conv;
           Object.assign(s, { chatWorking: true, sentAt: now(), doneMs: 0, edits: 0 });
           save();
@@ -134,9 +132,9 @@ export function createTaskbar({ render, prefs, rpc, getDoc = () => '', getTool =
     async poll() {
       const doc = getDoc();
       if (!doc) return draw();
-      const conv = s.conv || (s.agent && s.agent !== NEW_AGENT ? s.agent : '');
+      const conv = s.conv || s.agent;
       const out = await rpc('chat', { action: 'read', doc, conv_id: conv, since: 0, full: true }).catch(() => null);
-      if (out?.gone) { s.thread = []; s.conv = ''; if (s.agent && s.agent !== NEW_AGENT) s.agent = ''; s.chatWorking = false; save(); return draw(); }
+      if (out?.gone) { s.thread = []; s.conv = ''; s.agent = ''; s.chatWorking = false; save(); return draw(); }
       if (!out?.ok) return draw();
       s.thread = out.messages || []; s.conv = out.conv_id || conv;
       if (s.chatWorking) {
@@ -148,7 +146,7 @@ export function createTaskbar({ render, prefs, rpc, getDoc = () => '', getTool =
     clear() { const top = s.thread.at(-1); if (top) { s.cleared[s.conv] = (top.i ?? s.thread.length - 1) + 1; save(); } return draw(); },
     async openChat() { return rpc('chat', { action: 'open', doc: getDoc(), conv_id: s.conv || '' }).catch((e) => ({ ok: false, error: e.message })); },
     async stop() {
-      const out = await rpc('chat', { action: 'stop', doc: getDoc(), ...(s.agent && s.agent !== NEW_AGENT ? { conv_id: s.agent } : {}) }).catch((e) => ({ ok: false, error: e.message }));
+      const out = await rpc('chat', { action: 'stop', doc: getDoc(), ...(s.agent ? { conv_id: s.agent } : {}) }).catch((e) => ({ ok: false, error: e.message }));
       s.sending = false; if (s.chatWorking) { s.chatWorking = false; s.doneMs = now() - s.sentAt; } draw();
       return out;
     },

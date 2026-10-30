@@ -154,3 +154,5 @@ html { overflow: hidden; } /* the studio fills the panel; nothing scrolls the pa
 .ps-toast--ok { border-color: var(--green); }
 
 @media (max-width: 768px) { .studio__dock { display: none; } }
+/* side dock next to a chat: just the canvas, the replay bar and the AI bar, to watch the AI draw */
+@media (max-width: 560px) { .studio__tools { display: none; } }

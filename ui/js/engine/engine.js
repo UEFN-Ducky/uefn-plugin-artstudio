@@ -286,9 +286,13 @@ export function createEngine({ rpc, call, by }) {
     rebuild();
   }
 
+  let frame = null; // replay slider: a past state of the picture shown instead of the live layers
   const engine = {
     view,
     get doc() { return doc; },
+    get replaying() { return !!frame; },
+    /** Show an image (a replay frame, any size: it is stretched over the doc) instead of the live layers; null = live. */
+    setFrame(img) { frame = img || null; emit(); },
     get rev() { return rev; },
     get layers() { return doc ? doc.layers.map((l) => ({ ...l })) : []; },
     get ready() { return !!doc; },
@@ -577,10 +581,15 @@ export function createEngine({ rpc, call, by }) {
       g.save();
       g.translate(view.panX, view.panY); g.rotate(view.rotation); g.scale(view.zoom, view.zoom);
       g.imageSmoothingEnabled = view.zoom < 1;
-      g.fillStyle = colors.paper; g.fillRect(0, 0, doc.w, doc.h);
-      g.drawImage(comp.output, 0, 0);
-      g.drawImage(comp.canvas('__pending'), 0, 0);
-      g.drawImage(comp.canvas('__preview'), 0, 0);
+      const grid = checkerOf(g); // transparent pixels show the gray squares, like Photoshop
+      if (grid && typeof DOMMatrix === 'function') grid.setTransform?.(new DOMMatrix().scale(1 / view.zoom)); // squares keep their screen size
+      g.fillStyle = grid || colors.paper; g.fillRect(0, 0, doc.w, doc.h);
+      if (frame) g.drawImage(frame, 0, 0, doc.w, doc.h);
+      else {
+        g.drawImage(comp.output, 0, 0);
+        g.drawImage(comp.canvas('__pending'), 0, 0);
+        g.drawImage(comp.canvas('__preview'), 0, 0);
+      }
       g.restore();
       view.drawOverlay(g, colors);
       view.drawRulers(g, colors);
@@ -754,6 +763,25 @@ export function createEngine({ rpc, call, by }) {
     else emit();
   };
   return engine;
+}
+
+// Photoshop's transparency grid: 8 px white / light gray squares, written as pixels, one pattern per context.
+const CHECKER = new WeakMap();
+export function checkerPixels(n = 16) {
+  const px = new Uint8ClampedArray(n * n * 4);
+  for (let i = 0; i < n * n; i++) { const v = (i % n < n / 2) !== (i < (n * n) / 2) ? 204 : 255; px.set([v, v, v, 255], i * 4); }
+  return px;
+}
+function checkerOf(g) {
+  if (CHECKER.has(g)) return CHECKER.get(g);
+  let pat = null;
+  try {
+    const c = Object.assign(document.createElement('canvas'), { width: 16, height: 16 }), cx = c.getContext('2d');
+    const img = cx.createImageData(16, 16); img.data.set(checkerPixels(16)); cx.putImageData(img, 0, 0);
+    pat = g.createPattern(c, 'repeat');
+  } catch { pat = null; } // no DOM canvas (tests): the plain paper colour
+  CHECKER.set(g, pat);
+  return pat;
 }
 
 /** Canvas panel: <canvas> + rAF paint + pointer/wheel/key routing (engine.input first, then engine.tool). */

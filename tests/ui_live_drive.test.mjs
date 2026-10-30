@@ -34,34 +34,12 @@ const deps = watchDeps(ctx, (n, a) => { sentRpc.push([n, a]); return Promise.res
 assert.equal(typeof deps.rpc, 'function');
 assert.equal(typeof deps.docId, 'function');
 assert.ok(!('callTool' in deps));
-assert.deepEqual(deps.engine.layers, []);
-ctx.engine = { layers: [{ id: 'l', name: 'Sky' }] };
-assert.equal(deps.engine.layers[0].name, 'Sky');
+deps.engine.applyOp({ rev: 1 }); // no canvas yet: a no-op, not a throw
+const applied = [];
+ctx.engine = { applyOp: (o) => applied.push(o.rev) };
 await createWatch(deps).stop();
 assert.deepEqual(sentRpc, [['ai', { op: 'stop', doc: 'd9' }]]);
-// Watch panel mount: the host gets the feed + Stop button, kit-styled; redraw shows new feed lines
-const mkEl = () => {
-  const el = { children: [], className: '', textContent: '', classList: { s: new Set(), add(c) { this.s.add(c); } } };
-  el.append = (...k) => el.children.push(...k);
-  el.appendChild = (k) => el.children.push(k);
-  el.replaceChildren = () => { el.children = []; };
-  el.querySelectorAll = (sel) => {
-    const out = [];
-    const walk = (n) => { n.children?.forEach((c) => { if (sel === 'button' && c.tag === 'button') out.push(c); walk(c); }); };
-    walk(el);
-    return out;
-  };
-  return el;
-};
-globalThis.document = { createElement: (tag) => Object.assign(mkEl(), { tag }) };
-const { mountWatch } = await import('../ui/js/core/live-drive.js');
-const host = mkEl();
-const w = createWatch(watchDeps({}, () => Promise.resolve({}), () => 'd9', { onFeed: () => redraw() }));
-const redraw = mountWatch(host, () => w);
-const buttons = host.querySelectorAll('button');
-// Stop/Resume/Follow moved to the bottom AI bar: the dock copy hides them; any other button is kit-styled.
-assert.ok(buttons.filter((b) => /^(Follow|Following|Stop|Resume)\b/.test(b.textContent)).every((b) => b.hidden === true));
-assert.ok(buttons.filter((b) => !b.hidden).every((b) => b.classList.s.has('dk-btn')));
-w.onEvent({ rev: 1, kind: 'stroke', layer: 'l', by: { kind: 'ai', label: 'Ducky' } });
-assert.equal(host.children[1].children.at(-1).textContent, 'Ducky: stroke on l');
+// the engine is read lazily: an AI op pushed after the canvas mounted is drawn on it
+createWatch(deps).onEvent({ type: 'artstudio_op', op: { rev: 7, kind: 'stroke', by: { kind: 'ai' } } });
+assert.deepEqual(applied, [7]);
 console.log('ui_live_drive ok');

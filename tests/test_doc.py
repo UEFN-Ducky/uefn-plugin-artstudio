@@ -225,6 +225,29 @@ def test_raster_returns_layer_pngs_and_since_rev():
     assert [x["id"] for x in api.tools["artstudio_doc"]("raster", did, args={"layers": ["L2"], "max_px": 32})["layers"]] == ["L2"]
 
 
+def test_frame_shows_the_picture_at_any_rev():
+    api = FakeApi()
+    doc.register(api)
+    ops.register(api)
+    did = doc.new_doc(api, "F", 64, 64, "")["doc"]
+    assert ops.apply_many(api, did, [
+        {"kind": "shape", "layer": "L1", "args": {"type": "rect", "box": [0, 0, 20, 20], "fill": "#ff0000"}},
+        {"kind": "shape", "layer": "L1", "args": {"type": "rect", "box": [40, 40, 60, 60], "fill": "#0000ff"}}])["ok"]
+    last = api.data.get(contracts.doc_key(did))["rev"]
+    now = api.tools["artstudio_doc"]("frame", did)
+    assert now["ok"] and now["rev"] == now["last"] == last
+    before = _png(api.tools["artstudio_doc"]("frame", did, args={"rev": last - 1})["png"])
+    assert before.getpixel((10, 10))[:3] == (255, 0, 0) and before.getpixel((50, 50))[3] == 0  # blue not drawn yet
+    after = _png(now["png"])
+    assert after.getpixel((50, 50))[:3] == (0, 0, 255)
+    assert api.tools["artstudio_doc"]("frame", did, args={"rev": 999})["rev"] == last  # clamped
+    assert max(_png(api.tools["artstudio_doc"]("frame", did, args={"max_px": 32})["png"]).size) == 32
+    assert not api.tools["artstudio_doc"]("frame", "nope")["ok"]
+    # exactly what the replay slider sends (ui/js/live/replay.js): extras inside args
+    panel = api.rpcs["doc"](action="frame", doc=did, rev=1, args={"max_px": 16})
+    assert panel["ok"] and panel["rev"] == 1 and max(_png(panel["png"]).size) == 16
+
+
 def test_panel_rpcs_are_the_tools():
     api = FakeApi()
     doc.register(api)

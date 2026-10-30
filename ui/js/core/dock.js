@@ -11,7 +11,6 @@ export const PANELS = {
   brushes: "./panels/brushes.js", layers: "./panels/layers.js", history: "./panels/history.js",
   navigator: "./panels/navigator.js", properties: "./panels/properties.js", adjustments: "./panels/adjustments.js",
   filters: "./panels/filters.js", layerstyles: "./panels/layer-styles.js",
-  live: "./live/sync.js", versions: "../panels/versions.js", feedback: "./feedback/popup.js", chat: "./chat/drawer.js",
 };
 
 // run(cmd, arg) for core/shortcuts.js install(): shell commands open dialogs, the rest go to panels via dispatch.
@@ -67,7 +66,6 @@ export function wireModules(ctx, m, { stage, canvas, prefs, run }) {
       },
     }).then((v) => v?.text || ""),
     progress: (msg, on = !!msg) => { ctx.bus.emit?.("status", { ai: on ? "working" : "idle" }); if (msg) ctx.toast?.(msg, "ok"); },
-    watch: () => ctx.dock?.revealPanel("watch"),
   });
   const bar = m.taskbar.mountTaskbar(stage, { prefs, run: (id, arg) => ai.run(id, arg) });
   const refresh = () => bar.update({
@@ -81,45 +79,6 @@ export function wireModules(ctx, m, { stage, canvas, prefs, run }) {
   ctx.bus.on("cmd", refresh);
   stage.addEventListener?.("pointerup", refresh);
   return { bar, ai, refresh };
-}
-
-// Thin mounts for modules that export functions but no mount(el, ctx): live, feedback and the chat drawer.
-const make = (el, tag, cls, text) => {
-  const n = el.ownerDocument.createElement(tag);
-  n.className = cls; if (text != null) n.textContent = text;
-  return n;
-};
-export const PANEL_ADAPTERS = {
-  "./live/sync.js": {
-    mount(el, ctx) {
-      const line = make(el, "div", "dk-card", "");
-      el.append(line);
-      ctx.store.subscribe("live", (v) => {
-        const n = Array.isArray(v) ? v.length : Number(v) || 0;
-        line.textContent = n ? `${n} live collaborator${n === 1 ? "" : "s"}` : "Working solo";
-      });
-    },
-  },
-  "./feedback/popup.js": {
-    mount(el, ctx) {
-      const b = make(el, "button", "dk-btn", "Feedback on selection…");
-      b.addEventListener("click", () => ctx.ai?.askAI?.() ?? ctx.toast?.("Make a selection first, then ask for feedback.", "ok"));
-      el.append(b);
-    },
-  },
-  "./chat/drawer.js": {
-    mount(el, ctx) {
-      const b = make(el, "button", "dk-btn", "Open chat");
-      b.addEventListener("click", () => ctx.chat?.open({ doc: ctx.store.get("doc") }));
-      el.append(b);
-    },
-  },
-};
-
-// import a panel module; one without mount gets its adapter, so every load either mounts or reports why not.
-export async function loadPanel(path, importer) {
-  const mod = await importer(path);
-  return typeof mod?.mount === "function" ? mod : PANEL_ADAPTERS[path] || mod;
 }
 
 // Mount every module; a failure (import error or no mount export) is logged and toasted, never swallowed.
@@ -209,8 +168,7 @@ export function mountDock(root, { prefs, bus } = {}) {
       tabs.forEach((t) => t.setAttribute("aria-selected", String(state.collapsed ? fly?.id === id && fly.tab === t.dataset.tab : t.dataset.tab === tab)));
     }
   };
-  const groupEl = (id) => groups.find((g) => g.dataset.dockGroup === id);
-  // Window menu names ("watch-ai") match a tab id ("watchai") rather than its mount ("watch").
+  // Window menu names ("layer-styles") may match a tab id with the dashes dropped rather than its mount.
   const bodyOf = (panel) => root.querySelector(`[data-panel="${panel}"]`)?.closest("[data-tab-body]")
     || root.querySelector(`[data-tab-body="${String(panel).replace(/-/g, "")}"]`);
 
@@ -252,7 +210,7 @@ export function mountDock(root, { prefs, bus } = {}) {
     handleKey(ev) { if (ev.key === "Escape" && fly) { api.closeFly(); return true; } return false; },
     handleOutside(target) { if (fly && !target?.closest?.("[data-tab],.is-fly")) api.closeFly(); },
     setWidth(w) { state.width = clampW(w); apply(); save(); },
-    // Reveal the tab holding a panel mount, e.g. revealPanel("watch").
+    // Reveal the tab holding a panel mount, e.g. revealPanel("layers").
     revealPanel(panel) {
       const body = bodyOf(panel);
       const g = body && groups.find((x) => x.contains(body));

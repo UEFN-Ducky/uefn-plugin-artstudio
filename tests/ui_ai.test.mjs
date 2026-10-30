@@ -1,7 +1,7 @@
 // node tests/ui_ai.test.mjs  (run from the plugin folder)
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { barModel, agentOptions, createTaskbar, dockParams, mdLite, NEW_AGENT, SELECTION_HINT } from '../ui/js/ai/taskbar.js';
+import { barModel, agentOptions, createTaskbar, dockParams, mdLite, SELECTION_HINT } from '../ui/js/ai/taskbar.js';
 // agent replies render as safe mini-markdown: no raw ** / ducky: links / > [!NOTE], and no HTML from the text
 {
   const h = mdLite('I made **a nest**.\n\n## What I added\n- [**Twigs**](ducky:amber): `L7`\n> [!NOTE] One overlap\n> The tail <b>touches</b>.');
@@ -11,17 +11,18 @@ import { barModel, agentOptions, createTaskbar, dockParams, mdLite, NEW_AGENT, S
   assert.equal(/ducky:|\*\*|<b>/.test(h), false);
 }
 // Ducky's docked chat (host chat.open): one conversation per artwork, told which artwork and how to work
+const taskbarSrc = readFileSync(new URL('../ui/js/ai/taskbar.js', import.meta.url), 'utf8');
 {
   const p = dockParams('a62f3f', 'Sunset cabin');
   assert.equal(p.key, 'doc:a62f3f'); assert.equal(p.place, 'bottom'); assert.equal(p.expanded, false);
   assert.match(p.brief, /artwork a62f3f \("Sunset cabin"\)/); assert.match(p.brief, /artstudio_apply/);
   assert.ok(p.brief.length <= 1500);
 }
-const taskbarSrc = readFileSync(new URL('../ui/js/ai/taskbar.js', import.meta.url), 'utf8');
 
-// picker: artwork agent first, known Ducky chats, then "+ New agent…"
+// picker: artwork agent first, then known Ducky chats; the panel never spawns a new agent
 assert.deepEqual(agentOptions([{ id: 'c1', name: 'Inker' }, { nope: 1 }]).map((o) => [o.id, o.label]),
-  [['', 'Artwork agent'], ['c1', 'Inker'], [NEW_AGENT, '+ New agent…']]);
+  [['', 'Artwork agent'], ['c1', 'Inker']]);
+assert.equal(/new_agent|New agent/.test(taskbarSrc), false);
 assert.equal(barModel({ status: 'working' }).working, true);
 
 // controller: renders at the bottom, send posts `chat send` with doc + selection context, ✕ hides, pill restores
@@ -31,7 +32,7 @@ const rpc = async (m, p) => { calls.push([m, p]); return p.action === 'agents' ?
 const mk = () => createTaskbar({ prefs, rpc, getDoc: () => 'D1', getTool: () => 'brush', render: (m) => rendered.push(m) });
 const tb = mk();
 await tb.loadAgents();
-assert.equal(rendered.at(-1).options.length, 3);
+assert.equal(rendered.at(-1).options.length, 2);
 assert.equal(rendered.at(-1).collapsed, false);
 tb.update({ selection: { x: 1, y: 2, w: 3, h: 4 }, layer: { id: 'L1' } });
 assert.equal((await tb.send('  ')).ok, false); // empty prompt posts nothing
@@ -43,8 +44,7 @@ assert.deepEqual(sends().at(-1), ['chat', { action: 'send', doc: 'D1', text: 'ad
 tb.pick('c1'); tb.update({ selection: null });
 await tb.send('hi');
 assert.deepEqual(sends().at(-1)[1], { action: 'send', doc: 'D1', text: 'hi', conv_id: 'c1', context: { selection: null, layer: 'L1', tool: 'brush' } });
-tb.pick(NEW_AGENT); await tb.send('x');
-assert.equal(sends().at(-1)[1].new_agent, true);
+assert.equal(sends().some((c) => 'new_agent' in c[1]), false);
 tb.update({ ai: 'working' });
 assert.equal(rendered.at(-1).working, true);
 await tb.stop();
@@ -52,7 +52,10 @@ assert.equal(calls.at(-1)[1].action, 'stop');
 tb.update({ ai: 'idle' });
 tb.collapse(true);
 assert.equal(rendered.at(-1).collapsed, true);
-assert.equal(saved.aibar.collapsed, true); assert.equal(saved.aibar.agent, NEW_AGENT);
+assert.equal(saved.aibar.collapsed, true); assert.equal(saved.aibar.agent, 'c1');
+saved.aibar = { ...saved.aibar, agent: '__new' }; // a saved pick of the removed "+ New agent…" falls back to the artwork agent
+assert.equal(mk().state.agent, '');
+saved.aibar = { ...saved.aibar, agent: 'c1' };
 assert.equal(mk().state.collapsed, true); // remembered
 tb.collapse(false);
 assert.equal(rendered.at(-1).collapsed, false);
@@ -85,7 +88,7 @@ assert.equal(rendered.at(-1).collapsed, false);
   // a deleted chat falls back to the artwork agent, never a blank picker
   bar.pick('dead'); await bar.poll();
   assert.equal(r2.at(-1).agent, ''); assert.equal(r2.at(-1).options[0].label, 'Artwork agent');
-  assert.deepEqual(agentOptions([], 'x9').map((o) => o.label), ['Artwork agent', 'Chosen agent', '+ New agent…']);
+  assert.deepEqual(agentOptions([], 'x9').map((o) => o.label), ['Artwork agent', 'Chosen agent']);
 }
 assert.equal(taskbarSrc.includes('ai-taskbar'), false); // no floating bar
 assert.equal(/Remove BG|Generate/.test(taskbarSrc), false);

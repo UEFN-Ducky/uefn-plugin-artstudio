@@ -10,9 +10,12 @@ const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
 const mounts = [...html.matchAll(/data-panel="(\w+)"/g)].map((m) => m[1]);
 assert.ok(!mounts.includes('options'), 'no options strip');
 for (const m of ['menu', 'toolbar', 'canvas', 'color', 'swatches', 'brushes', 'layers', 'history', 'navigator',
-  'watch', 'live', 'versions', 'feedback', 'chat', 'properties', 'adjustments', 'filters', 'layerstyles']) {
+  'properties', 'adjustments', 'filters', 'layerstyles']) {
   assert.ok(mounts.includes(m), `missing mount ${m}`);
 }
+// Watching the AI is built in (no tab); Versions / Feedback / Chat tabs are gone
+for (const m of ['watch', 'live', 'versions', 'feedback', 'chat']) assert.ok(!mounts.includes(m), `stale mount ${m}`);
+assert.ok(!html.includes('data-dock-group="team"'), 'no Team group');
 for (const [name, path] of Object.entries(PANELS)) {
   assert.ok(mounts.includes(name), `PANELS.${name} has no mount in index.html`);
   assert.ok(existsSync(new URL(`../ui/js/${path}`, import.meta.url)) || existsSync(new URL(`../ui/${path.replace('../', '')}`, import.meta.url)), `${path} missing`);
@@ -185,36 +188,20 @@ assert.equal(fctx.chat, chatObj);
 assert.deepEqual(await fctx.agents(), [{ id: 'chat', label: 'Artwork chat' }]);
 assert.deepEqual(await fctx.pickModel({ left: 1, top: 2, right: 3, bottom: 4, extra: 9 }, 'm0'), { model: 'm1', name: 'M1' });
 assert.deepEqual(posted, [['ui.pickModel', { anchor: { left: 1, top: 2, right: 3, bottom: 4 }, current: 'm0' }]]);
-// ---- every PANELS module exports mount, or has an adapter ----
-const { PANEL_ADAPTERS, loadPanel } = await import('../ui/js/core/dock.js');
+// ---- every PANELS module exports mount ----
 for (const [name, path] of Object.entries(PANELS)) {
   const src = readFileSync(new URL(`../ui/js/${path}`, import.meta.url), 'utf8');
-  const hasMount = /export (async )?function mount\b|export const mount\b|export \{[^}]*\bmount\b/.test(src);
-  assert.ok(hasMount || PANEL_ADAPTERS[path]?.mount, `${name} (${path}) has no mount and no adapter`);
+  assert.ok(/export (async )?function mount\b|export const mount\b|export \{[^}]*\bmount\b/.test(src), `${name} (${path}) has no mount`);
 }
-// loadPanel prefers the module's mount, falls back to the adapter
-const own = { mount() {} };
-assert.equal(await loadPanel('./x.js', async () => own), own);
-assert.equal(await loadPanel('./chat/drawer.js', async () => ({})), PANEL_ADAPTERS['./chat/drawer.js']);
-// the adapters render a button / line into the mount point and wire it
-const kids = []; const mkEl = () => { const e = { children: [], className: '', textContent: '', handlers: {}, ownerDocument: { createElement: mkEl }, append(c) { kids.push(c); }, addEventListener(t, f) { this.handlers[t] = f; } }; return e; };
-const opened = [];
-const host2 = mkEl();
-PANEL_ADAPTERS['./chat/drawer.js'].mount(host2, { store: createStore({ doc: 'a' }), chat: { open: (c) => opened.push(c) } });
-kids.at(-1).handlers.click();
-assert.deepEqual(opened, [{ doc: 'a' }]);
-const live = mkEl();
-PANEL_ADAPTERS['./live/sync.js'].mount(live, { store: createStore({ live: 2 }) });
-assert.equal(kids.at(-1).textContent, '2 live collaborators');
 // dock layout: one tab strip per group, each tab has a body in index.html
-for (const t of ['color', 'swatches', 'properties', 'adjustments', 'layers', 'history', 'navigator', 'brushes', 'watchai', 'versions', 'feedback', 'chat']) {
+for (const t of ['color', 'swatches', 'properties', 'adjustments', 'layers', 'history', 'navigator', 'brushes']) {
   assert.ok(html.includes(`data-tab="${t}"`) && html.includes(`data-tab-body="${t}"`), `tab ${t}`);
 }
-assert.equal([...html.matchAll(/data-dock-group="/g)].length, 6); // History is its own group
+assert.equal([...html.matchAll(/data-dock-group="/g)].length, 5); // History is its own group; no Team group
 // each group header is ONE row container holding its tabs and its menu + collapse buttons
 const css = readFileSync(new URL('../ui/css/studio.css', import.meta.url), 'utf8');
 const navs = [...html.matchAll(/<nav class="studio__tabs"[\s\S]*?<\/nav>/g)].map((m) => m[0]);
-assert.equal(navs.length, 6);
+assert.equal(navs.length, 5);
 for (const n of navs) assert.ok(n.includes('data-tab=') && n.includes('data-group-toggle'), 'header row');
 assert.match(css, /\.studio__tabs \{[^}]*flex-wrap: nowrap/);
 // top bar is one card strip with New / Open / Watch AI inside it

@@ -5,12 +5,13 @@ import * as tools from "./core/tools.js"; // importing builds the core tool regi
 import { registerHighlight } from "./feedback/highlight.js";
 import { createSync, createLiveSession } from "./live/sync.js";
 import * as presenceMod from "./live/presence.js";
-import { wireLive, watchDeps, mountWatch } from "./core/live-drive.js";
+import { wireLive, watchDeps } from "./core/live-drive.js";
 import { createWatch } from "./live/watch.js";
+import { mountReplay } from "./live/replay.js";
 
 registerHighlight(tools); // after the core tools, so its shortcut guard sees them
 
-import { PANELS, mountPanels as mountAll, mountDock, openDocs, pickDoc, shellRun, wireModules, setFeedbackDeps, loadPanel } from "./core/dock.js";
+import { PANELS, mountPanels as mountAll, mountDock, openDocs, pickDoc, shellRun, wireModules, setFeedbackDeps } from "./core/dock.js";
 import * as shortcuts from "./core/shortcuts.js";
 import * as commands from "./menus/commands.js";
 import * as canvasMenu from "./menus/canvas-menu.js";
@@ -115,10 +116,10 @@ wireLive({
 });
 refreshScope();
 
-// Watch-AI: feed from solo artstudio_op pushes and live `op` / `ai.cursor` topics.
-let redrawWatch = () => {};
-ctx.watch = createWatch(watchDeps(ctx, rpc, () => store.get().doc, { onFeed: () => redrawWatch() }));
-redrawWatch = mountWatch($('[data-panel="watch"]'), () => ctx.watch);
+// Watching the AI is always on: solo artstudio_op pushes and live `op` / `ai.cursor` topics draw on the canvas as they come.
+ctx.watch = createWatch(watchDeps(ctx, rpc, () => store.get().doc));
+// Pushes are lost while the panel is hidden (or batched past a gap): pull whatever the canvas is missing.
+const catchUp = () => { if (ctx.engine?.doc) ctx.engine.catchUp?.().catch?.(() => {}); };
 onEvent((e) => {
   if (e.type === "artstudio_op") ctx.watch.onEvent(e);
   else if (e.type === "live.message" && e.topic === "op") ctx.watch.onEvent(e.data);
@@ -285,17 +286,17 @@ async function openImage() {
 
 // ---- panels -------------------------------------------------------------
 // Each module exports mount(el, ctx); any failure is logged and toasted by mountAll.
-const mountPanels = () => mountAll(PANELS, { find: (n) => $(`[data-panel="${n}"]`), importer: (p) => loadPanel(p, (x) => import(x)), ctx, toast });
+const mountPanels = () => mountAll(PANELS, { find: (n) => $(`[data-panel="${n}"]`), importer: (p) => import(p), ctx, toast });
 
 // ---- lifecycle: poll only while visible ---------------------------------
 let timer = 0;
 const stopPoll = () => { clearInterval(timer); timer = 0; };
-const startPoll = () => { if (!timer && store.get().visible) timer = setInterval(loadDocs, POLL_MS); };
+const startPoll = () => { if (!timer && store.get().visible) timer = setInterval(() => { loadDocs(); catchUp(); }, POLL_MS); };
 
 onEvent((e) => {
   if (e.type === "panel.visibility") {
     store.set({ visible: !!e.visible });
-    if (e.visible) { loadDocs(); startPoll(); } else stopPoll();
+    if (e.visible) { loadDocs(); catchUp(); startPoll(); } else stopPoll();
     bus.emit("visibility", { visible: !!e.visible });
   } else if (e.type === "plugin_scope_changed") {
     if (e.reason === "switched") store.set({ docs: [], doc: null, status: "loading" });
@@ -329,6 +330,7 @@ mountStatusbar(null, ctx); // no bottom strip: File > Document Info shows these
 store.subscribe((s) => { renderState(); renderTabs(); prefs.set("closedDocs", s.closed); });
 store.subscribe((s) => { if (s.doc !== ctx.lastDoc) { ctx.lastDoc = s.doc; bus.emit("doc", { doc: s.doc }); } });
 
+ctx.replay = mountReplay($(".studio__stage"), $('[data-panel="canvas"]'), ctx); // above the AI bar, which wireModules appends
 mountPanels().then(() => wireModules(ctx, { shortcuts, commands, canvasMenu, tabMenu, colorPicker, newDoc: newDocDialog, taskbar, aiActions, feedback, chat: chatDrawer, dialog }, {
   stage: $(".studio__stage"), canvas: $('[data-panel="canvas"]'), prefs,
   run: shellRun({ newDoc, openImage, openShortcutsDialog, dispatch: ctx.dispatch, getDoc: () => store.get().doc }),

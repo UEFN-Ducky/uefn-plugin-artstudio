@@ -86,9 +86,18 @@ ses.open('C');
 assert.deepEqual(log, []);
 // Stop/Resume call RPC ai with the current doc
 const calls = [];
-const w = createWatch({ engine: { layers: [] }, rpc: (n, a) => calls.push([n, a]), docId: () => 'D1' });
+const drawn = [], panned = [];
+const w = createWatch({ engine: { applyOp: (o) => drawn.push(o.rev), view: { panTo: (c) => panned.push(c) } }, rpc: (n, a) => calls.push([n, a]), docId: () => 'D1' });
 w.stop();
 w.resume();
 assert.deepEqual(calls, [['ai', { op: 'stop', doc: 'D1' }], ['ai', { op: 'resume', doc: 'D1' }]]);
-assert.equal(w.feed[0].text, 'AI stopped');
+// every AI op lands on the canvas: solo single, solo batch, live single, live batch; the view follows AI ops
+const ai = { kind: 'ai' };
+w.onEvent({ type: 'artstudio_op', op: { rev: 1, kind: 'stroke', by: ai, args: { center: [5, 5] } } });
+w.onEvent({ type: 'artstudio_op', ops: [{ rev: 2, kind: 'shape', by: ai }, { rev: 3, kind: 'fill', by: ai }] });
+w.onEvent({ rev: 4, kind: 'stroke', by: { kind: 'human' }, args: { center: [9, 9] } });
+w.onEvent({ doc: 'D1', ops: [{ rev: 5, kind: 'stroke', by: ai }] });
+w.onEvent(null);
+assert.deepEqual(drawn, [1, 2, 3, 4, 5]);
+assert.deepEqual(panned, [[5, 5]]);
 console.log('ui_live ok');

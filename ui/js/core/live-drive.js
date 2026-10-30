@@ -2,23 +2,9 @@
 export function watchDeps(ctx, rpc, docId, extra = {}) {
   return {
     rpc, docId,
-    engine: { get view() { return ctx.engine?.view; }, get layers() { return ctx.engine?.layers || []; } },
+    engine: { get view() { return ctx.engine?.view; }, applyOp: (op) => ctx.engine?.applyOp?.(op) },
     ...extra,
   };
-}
-
-// Renders the Watch-AI feed into host; returns the redraw function (pass it as deps.onFeed).
-// Follow/Stop/Resume live in the bottom AI bar now, so the dock copy drops them.
-export function mountWatch(host, getWatch) {
-  const redraw = () => {
-    getWatch().render(host);
-    host.querySelectorAll('button').forEach((b) => {
-      if (/^(Follow|Following|Stop|Resume)\b/i.test(String(b.textContent).trim())) b.hidden = true;
-      else b.classList.add('dk-btn');
-    });
-  };
-  redraw();
-  return redraw;
 }
 
 // Drives a live session (sync.js createLiveSession) from app events: doc open, visibility, scope switch.

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import base64
 import copy
+import io
 import os
 import uuid
 
 from PIL import Image
 
-from . import budget, contracts, ops
+from . import budget, contracts, ops, render
 
 MAX_SIDE = 4096
 ACTIONS: dict = {}  # artstudio_doc action -> fn(api, **args); other seats add theirs with register_action
@@ -351,6 +352,26 @@ def _raster(api, doc: str = "", layers=None, max_px: int = 0, since_rev=None, **
 
 
 register_action("raster", _raster)
+
+
+def _frame(api, doc: str = "", rev=None, max_px: int = 960, **_) -> dict:
+    """The whole picture as it looked at `rev` (the panel's replay slider): one flattened PNG data URL."""
+    d = _doc(api, doc)
+    if not d:
+        return {"ok": False, "error": f"no doc {doc!r}"}
+    rev = min(int(rev or 0), d["rev"]) if int(rev or 0) > 0 else d["rev"]  # 0 / none = now (rev 0 is the empty canvas)
+    # ponytail: layer order, visibility and blend come from the doc now, not from `rev`; layers made later are skipped
+    img = render.composite(d, ops.replay(api, doc, rev))
+    cap = max(16, min(int(max_px or 960), MAX_SIDE))
+    if max(img.size) > cap:
+        k = cap / max(img.size)
+        img = img.resize((max(1, round(img.width * k)), max(1, round(img.height * k))), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return {"ok": True, "rev": rev, "last": d["rev"], "png": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()}
+
+
+register_action("frame", _frame)
 
 
 def register(api) -> None:

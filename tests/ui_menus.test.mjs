@@ -135,7 +135,7 @@ assert.equal(bottom.find((i) => i.label === 'Merge Down').disabled, true);
 assert.equal(items.find((i) => i.label === 'Merge Down').disabled, false);
 
 // --- tab menu ---
-assert.deepEqual(labels(tabItems('a', ctx)), ['Close', 'Close Others', 'Duplicate', 'Move to Project', 'Reveal in Versions', 'Delete artwork…']);
+assert.deepEqual(labels(tabItems('a', ctx)), ['Close', 'Close Others', 'Duplicate', 'Move to Project', 'Delete artwork…']);
 { // Move to Project lists the other projects and moves the canvas there
   const moved = [];
   const pctx = { dispatch() {}, projects: { move: (d, p) => moved.push([d, p]) }, store: { get: () => ({ docs: [{ id: 'a', project: 'default' }], projects: [{ id: 'default', name: 'My Project' }, { id: 'p1', name: 'Testing' }] }) } };
@@ -146,7 +146,7 @@ assert.deepEqual(labels(tabItems('a', ctx)), ['Close', 'Close Others', 'Duplicat
 }
 installTab(ctx);
 handlers['doctab.context']({ doc: 'a', x: 1, y: 1 });
-assert.ok(menuLabels().includes('Reveal in Versions'));
+assert.ok(menuLabels().includes('Delete artwork…') && !menuLabels().includes('Reveal in Versions'));
 closeAll();
 
 // --- panel flyout ---

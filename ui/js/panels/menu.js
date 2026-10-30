@@ -25,7 +25,7 @@ const FILTERS = {
 };
 const ADJUSTMENTS = ['brightness_contrast', 'levels', 'curves', 'hue_saturation', 'color_balance', 'invert'];
 const STYLES = ['drop_shadow', 'outer_glow', 'stroke', 'bevel'];
-const PANELS = ['Color', 'Swatches', 'Properties', 'Adjustments', 'Layers', 'History', 'Navigator', 'Brushes', 'Watch AI', 'Versions', 'Feedback', 'Chat'];
+const PANELS = ['Color', 'Swatches', 'Properties', 'Adjustments', 'Layers', 'History', 'Navigator', 'Brushes'];
 const title = (s) => s.replace(/(^|_)(\w)/g, (_, d, c) => (d ? ' ' : '') + c.toUpperCase());
 
 const CSS = `

@@ -21,7 +21,7 @@ export function promptText(v) {
 }
 
 export function createAiActions(ctx) {
-  // One billed call with progress shown and the Watch AI feed opened; always clears progress.
+  // One billed call with progress shown; always clears progress.
   async function ai(label, params) {
     ctx.progress?.(label);
     ctx.watch?.();

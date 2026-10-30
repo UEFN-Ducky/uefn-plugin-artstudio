@@ -339,7 +339,6 @@ export const COMMANDS = {
     await ctx.refreshDocs?.();
   },
   "doc.duplicate": (ctx) => na(ctx, "Duplicate document"),
-  "doc.revealVersions": (ctx) => (ctx.dock?.revealPanel ? ctx.dock.revealPanel("versions") : na(ctx, "Versions")),
   // panels / window
   "history.snapshot": (ctx) => na(ctx, "New Snapshot"),
   "history.clear": (ctx) => na(ctx, "Clear History"),
