@@ -17,6 +17,26 @@ const taskbarSrc = readFileSync(new URL('../ui/js/ai/taskbar.js', import.meta.ur
   assert.equal(p.key, 'doc:a62f3f'); assert.equal(p.place, 'bottom'); assert.equal(p.expanded, false);
   assert.match(p.brief, /artwork a62f3f \("Sunset cabin"\)/); assert.match(p.brief, /artstudio_apply/);
   assert.ok(p.brief.length <= 1500);
+  assert.equal('conv_id' in p, false, 'first time: Ducky picks the chat');
+  assert.equal(dockParams('a62f3f', 'Sunset cabin', 'c-9').conv_id, 'c-9', 'then the same chat is reused, never a new one');
+}
+// the AI bar asks Ducky for each artwork's chat once at a time and reuses the chat it got back
+{
+  const { mountTaskbar } = await import('../ui/js/ai/taskbar.js');
+  const mk = (tag) => { const n = { tag, children: [], dataset: {}, style: {}, hidden: false, textContent: '', value: '', className: '', title: '',
+    append(...k) { n.children.push(...k); }, replaceChildren(...k) { n.children = k; }, setAttribute() {}, addEventListener() {}, set innerHTML(v) {} }; return n; };
+  const opens = [], store = { doc: 'D1', docs: [{ id: 'D1', name: 'Hud' }] }, saved = {};
+  const win = { setInterval() {}, artstudio: { store: { get: (k) => store[k] }, bus: { on() {} },
+    call: async (m, p) => { opens.push(p); await new Promise((r) => setTimeout(r, 5)); return { open: true, conv_id: p.conv_id || `new-${opens.length}` }; } } };
+  const root = mk('div'); root.ownerDocument = { createElement: mk, defaultView: win, visibilityState: 'visible' };
+  const prefs = { get: (k) => saved[k], set: (k, v) => { saved[k] = v; } };
+  mountTaskbar(root, { prefs, rpc: async () => ({ ok: true }) });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(opens.length, 1); assert.equal(opens[0].conv_id, undefined);
+  assert.equal(saved['dockchat.D1'], 'new-1', 'remembered on this PC');
+  mountTaskbar(root, { prefs, rpc: async () => ({ ok: true }) }); // a reload / a second panel
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(opens.at(-1).conv_id, 'new-1', 'reuses the chat instead of making a new one');
 }
 
 // picker: artwork agent first, then known Ducky chats; the panel never spawns a new agent

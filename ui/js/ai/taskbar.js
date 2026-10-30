@@ -25,12 +25,13 @@ export function sendParams({ doc, text, agent, selection, layer, tool }) {
 }
 
 // Pure: Ducky's docked chat (host bridge `chat.open`) for one artwork: its own conversation, told what it works on.
-export function dockParams(doc, name = '') {
+// convId: the chat Ducky gave this artwork before; passed back so Ducky reuses it instead of making a new one.
+export function dockParams(doc, name = '', convId = '') {
   const brief = `You work on the Art Studio artwork ${doc}${name ? ` ("${name}")` : ''} with the artstudio_* tools ` +
     '(find them with ducky_get_tools pattern "artstudio_"). Batch edits with artstudio_apply, look at your work with ' +
     'artstudio_preview (output_dir = your chat\'s attachments folder) before you say it is done, and draw on new layers ' +
     'instead of painting over the person\'s own unless they ask.';
-  return { key: `doc:${doc}`, title: 'Art Studio AI', brief, place: 'bottom', expanded: false };
+  return { key: `doc:${doc}`, title: 'Art Studio AI', brief, place: 'bottom', expanded: false, ...(convId && { conv_id: convId }) };
 }
 
 // Pure: an agent reply as safe HTML (escaped first): bold, code, headings, bullets, > [!NOTE] callouts.
@@ -238,15 +239,25 @@ export function mountTaskbar(root, { prefs, rpc, getDoc, getTool, toast }) {
   w?.bus?.on?.('doc', () => { tb.pick(tb.state.agent); dock(); }); // another artwork: its own agent's chat
   // Newer Ducky docks its real chat (messages, tool steps, composer) under the panel, one conversation per
   // artwork; an older Ducky has no `chat.open` and this bar stays the chat.
-  const dock = async () => {
+  // Ducky makes a new chat whenever it can't find the one it remembered (its chat list is filtered), so
+  // the panel remembers each artwork's chat itself (this PC only) and asks once at a time per artwork.
+  // ponytail: a remembered chat the person deleted still gets docked; clear prefs `dockchat.<doc>` if that matters
+  const asking = new Map();
+  const dock = () => {
     const doc = w?.store?.get('doc');
-    if (!doc || !w?.call) return;
+    if (!doc || !w?.call) return Promise.resolve();
+    if (asking.has(doc)) return asking.get(doc);
     const name = (w.store.get('docs') || []).find((x) => x.id === doc)?.name || '';
-    try {
-      const r = await w.call('chat.open', dockParams(doc, name));
-      hostDock = !!r?.open;
-    } catch { hostDock = false; }
-    tb.update({});
+    const p = (async () => {
+      try {
+        const r = await w.call('chat.open', dockParams(doc, name, prefs?.get?.(`dockchat.${doc}`) || ''));
+        hostDock = !!r?.open;
+        if (r?.conv_id) prefs?.set?.(`dockchat.${doc}`, r.conv_id);
+      } catch { hostDock = false; }
+      tb.update({});
+    })().finally(() => asking.delete(doc));
+    asking.set(doc, p);
+    return p;
   };
   const win = d.defaultView;
   win?.setInterval?.(() => tb.tick(), 1000); // the working timer
