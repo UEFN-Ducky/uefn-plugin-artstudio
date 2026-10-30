@@ -23,6 +23,18 @@ for (const [name, path] of Object.entries(PANELS)) {
 for (const part of ['data-doc-tabs', 'data-dock', 'data-dock-resize', 'data-dock-group="history"']) assert.ok(html.includes(part), part);
 assert.ok(!html.includes('data-status'), 'no bottom status strip');
 
+// ---- team badge in the top bar: whose canvases these are ----
+{
+  const { scopeBadge } = await import('../ui/js/core/statusbar.js');
+  const team = scopeBadge({ kind: 'shared', label: 'Mindful Path', spaceId: 's1', readOnly: false });
+  assert.equal(team.text, '👥 Mindful Path'); assert.equal(team.kind, 'shared');
+  assert.match(team.title, /Teammates see these canvases once their Art Studio data is set to Mindful Path/);
+  assert.equal(scopeBadge({ kind: 'shared', label: 'Mindful Path', readOnly: true }).text, '👥 Mindful Path · read-only');
+  for (const s of [undefined, null, { kind: 'local' }]) assert.equal(scopeBadge(s).text, 'Local · only you');
+  assert.match(scopeBadge({ kind: 'local' }).title, /Plugins → AI Art Studio → Data/);
+  assert.ok(html.includes('data-scope-badge'), 'badge in the top bar');
+}
+
 // ---- status bar follows the store ----
 const bus = { h: {}, on(n, f) { this.h[n] = f; } };
 const store = createStore({ docs: [{ id: 'a', w: 1024, h: 1024, rev: 201 }], doc: 'a', zoom: 0.667, live: 2, ai: 'idle' });

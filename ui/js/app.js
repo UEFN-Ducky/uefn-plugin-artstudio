@@ -25,7 +25,7 @@ import { openBrowser } from "./dialogs/browser.js";
 import * as feedback from "./feedback/popup.js";
 import * as chatDrawer from "./chat/drawer.js";
 import { openShortcutsDialog } from "./dialogs/shortcuts.js";
-import { mountStatusbar, docSize } from "./core/statusbar.js";
+import { mountStatusbar, docSize, scopeBadge } from "./core/statusbar.js";
 
 const POLL_MS = 5000;
 const prefs = { // dock layout survives reloads
@@ -92,7 +92,11 @@ ctx.createSync = (opts = {}) => createSync({
 
 // ---- live session: joins a team copy's room per open doc; local scope never joins ----
 let teamScope = false;
-const refreshScope = () => call("scope.get").then((r) => { teamScope = (r?.scope?.kind || "local") !== "local"; }).catch(() => {});
+const refreshScope = () => call("scope.get").then((r) => {
+  teamScope = (r?.scope?.kind || "local") !== "local";
+  const el = $("[data-scope-badge]"), b = scopeBadge(r?.scope);
+  if (el) { el.textContent = b.text; el.title = b.title; el.dataset.kind = b.kind; el.hidden = false; }
+}).catch(() => {});
 let myPresence = null;
 const startPresence = (docId) => {
   if (presenceMod.startPresence) return presenceMod.startPresence(docId, ctx);

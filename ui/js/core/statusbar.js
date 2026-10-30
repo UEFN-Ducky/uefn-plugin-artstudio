@@ -18,6 +18,19 @@ export function formatStatus(s = {}) {
   ].join(" · ");
 }
 
+// The top bar's team badge: whose canvases these are (host scope.get -> {kind, label, readOnly}).
+export function scopeBadge(scope) {
+  const kind = scope?.kind || "local";
+  if (kind === "local") {
+    return { kind, text: "Local · only you", title: "These canvases are only on this PC. To share them with your team, set Art Studio's data to the team: Plugins → AI Art Studio → Data." };
+  }
+  const team = scope.label || "your team";
+  return {
+    kind, text: `👥 ${team}${scope.readOnly ? " · read-only" : ""}`,
+    title: `Shared with ${team}. Teammates see these canvases once their Art Studio data is set to ${team} too (Plugins → AI Art Studio → Data).${scope.readOnly ? " The team copy is read-only right now." : ""}`,
+  };
+}
+
 // el: the status bar element, or null to only keep the store current (Document Info reads it). Returns the unsubscribe function.
 export function mountStatusbar(el, ctx) {
   ctx.bus?.on("status", (patch) => ctx.store.set(patch));
