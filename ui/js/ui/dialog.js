@@ -10,8 +10,16 @@ function focusables(root, out = []) {
   return out;
 }
 
+// One dialog per title: pressing New (or any opener) again brings the open one forward instead of stacking another.
+// The repeat press resolves null (like Cancel), so only the first opener acts on OK: one canvas, not two.
+const OPEN = new Map(); // title -> {promise, focus, overlay}
+const onPage = (n) => !!n && (n.isConnected ?? !!n.parentNode); // removed without closing (page cleared): not open
+
 export function dialog({ title = '', body, ok = 'OK', cancel = 'Cancel', preview } = {}) {
-  return new Promise((resolve) => {
+  const open = title && OPEN.get(title);
+  if (open && onPage(open.overlay)) { open.focus(); return Promise.resolve(null); }
+  let focusIt = () => {}, overlayRef = null;
+  const promise = new Promise((resolve) => {
     const prev = document.activeElement;
     const make = (tag, cls, text) => {
       const e = document.createElement(tag);
@@ -19,7 +27,7 @@ export function dialog({ title = '', body, ok = 'OK', cancel = 'Cancel', preview
       if (text !== undefined) e.textContent = text;
       return e;
     };
-    const overlay = make('div', 'dk-modal');
+    const overlay = overlayRef = make('div', 'dk-modal');
     const box = make('div', 'dk-dialog');
     box.setAttribute('role', 'dialog');
     box.setAttribute('aria-modal', 'true');
@@ -50,6 +58,7 @@ export function dialog({ title = '', body, ok = 'OK', cancel = 'Cancel', preview
     const finish = (result) => {
       if (done) return;
       done = true;
+      if (OPEN.get(title)?.promise === promise) OPEN.delete(title);
       if (preview && result === null) preview(false);
       overlay.remove();
       if (prev && prev.focus) prev.focus();
@@ -71,6 +80,9 @@ export function dialog({ title = '', body, ok = 'OK', cancel = 'Cancel', preview
     });
     document.body.append(overlay);
     if (preview) preview(true);
-    (focusables(content)[0] || okBtn).focus();
+    focusIt = () => (focusables(content)[0] || okBtn).focus();
+    focusIt();
   });
+  if (title) OPEN.set(title, { promise, focus: () => focusIt(), overlay: overlayRef });
+  return promise;
 }

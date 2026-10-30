@@ -133,6 +133,21 @@ p = dialog({ title: 'x', body: () => ({}) });
 overlay = document.body.children.find((c) => c.className === 'dk-modal');
 overlay.dispatch('keydown', { key: 'Escape' });
 assert.equal(await p, null, 'Esc resolves null');
+// pressing New again while New is open: no second dialog (no stacked backdrops); only the first opener gets OK's values
+{
+  const modals = () => document.body.children.filter((c) => c.className === 'dk-modal').length;
+  const before = modals();
+  const first = dialog({ title: 'New Document', body: () => () => ({ w: 1 }) });
+  const again = dialog({ title: 'New Document', body: () => () => ({ w: 2 }) });
+  assert.equal(modals(), before + 1, 'one dialog, not two');
+  assert.equal(await again, null, 'the repeat press does nothing on its own');
+  document.body.children.filter((c) => c.className === 'dk-modal').at(-1).children[0].children[2].children.at(-1).click();
+  assert.deepEqual(await first, { w: 1 });
+  const reopened = dialog({ title: 'New Document', body: () => ({}) }); // closed: it opens again
+  assert.equal(modals(), before + 1);
+  document.body.children.filter((c) => c.className === 'dk-modal').at(-1).dispatch('keydown', { key: 'Escape' });
+  assert.equal(await reopened, null);
+}
 p = dialog({ title: 'x', body: (el) => { el.append(document.createElement('input')); return {}; }, preview: (on) => previews.push(on) });
 overlay = document.body.children.find((c) => c.className === 'dk-modal');
 const foc = [];

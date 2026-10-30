@@ -30,7 +30,7 @@ assert.deepEqual(calls.map((c) => c[1].by).sort(), ['ai', 'human']);
 // Snapshot = doc commit.
 calls.length = 0;
 await snapshot(call, 'd1');
-assert.deepEqual(calls, [['doc', { action: 'commit', doc: 'd1', msg: 'Snapshot' }]]);
+assert.deepEqual(calls, [['doc', { action: 'commit', doc: 'd1', args: { msg: 'Snapshot' } }]]); // msg inside args: artstudio_doc refuses unknown keys
 // Undo mine / Undo AI: one undo per author; null (disabled) when that author has no live op.
 {
   const { undoBy, liveBy } = await import('../ui/js/panels/history.js');

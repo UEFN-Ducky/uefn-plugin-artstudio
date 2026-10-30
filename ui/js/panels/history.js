@@ -42,7 +42,8 @@ export const liveBy = (ops, by) => {
 // "Undo mine" / "Undo AI": undo one op by that author, or null when there is none.
 export const undoBy = (call, doc, ops, by) => (liveBy(ops, by).length ? call("undo", { doc, n: 1, by }) : null);
 // Camera button: a named snapshot is a version commit.
-export const snapshot = (call, doc, msg = "Snapshot") => call("doc", { action: "commit", doc, msg });
+// extras ride in `args`: the doc RPC has the artstudio_doc signature and refuses unknown top-level keys
+export const snapshot = (call, doc, msg = "Snapshot") => call("doc", { action: "commit", doc, args: { msg } });
 
 const time = (t) => new Date(t > 1e12 ? t : t * 1000).toTimeString().slice(0, 5);
 

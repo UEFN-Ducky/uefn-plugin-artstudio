@@ -324,7 +324,7 @@ export const COMMANDS = {
     const f = (await ctx.call("files.pick", { accept: "image" }))?.files?.[0];
     return f && ctx.rpc("open_image", { path: f.path, name: f.name });
   },
-  "doc.save": (ctx) => ctx.rpc("doc", { action: "commit", doc: docOf(ctx), msg: "Save" }),
+  "doc.save": (ctx) => ctx.rpc("doc", { action: "commit", doc: docOf(ctx), args: { msg: "Save" } }),
   save: alias("doc.save"),
   "doc.close": (ctx, a) => closeTabs(ctx, [a.doc || docOf(ctx)]),
   "doc.closeOthers": (ctx, a) => closeTabs(ctx, ctx.store.get().docs.filter((d) => d.id !== (a.doc || docOf(ctx))).map((d) => d.id)),

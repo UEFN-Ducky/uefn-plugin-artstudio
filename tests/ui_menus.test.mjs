@@ -309,7 +309,7 @@ fc = mkFull();
 await runCommand(fc, 'ai.upscale');
 assert.deepEqual(fc.calls.pop(), ['ai', { op: 'upscale', doc: 'D', layer: '' }]);
 await runCommand(fc, 'doc.save');
-assert.deepEqual(fc.calls.pop(), ['doc', { action: 'commit', doc: 'D', msg: 'Save' }]);
+assert.deepEqual(fc.calls.pop(), ['doc', { action: 'commit', doc: 'D', args: { msg: 'Save' } }]); // msg inside args: artstudio_doc refuses unknown keys
 log.length = 0;
 await runCommand(fc, 'window.reset');
 assert.deepEqual(log.splice(0), [['group', 'layers'], ['dock', false], ['width', 300]]);
