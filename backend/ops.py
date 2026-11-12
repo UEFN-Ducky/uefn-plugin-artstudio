@@ -20,7 +20,7 @@ import time
 
 from PIL import Image, ImageChops, ImageDraw
 
-from . import budget, contracts, render
+from . import budget, contracts, oplog, render
 
 PIXEL_KINDS = frozenset(
     {"stroke", "fill", "shape", "text", "image.place", "retouch", "gradient", "clone", "heal", "dodge", "burn",
@@ -213,6 +213,10 @@ def append(api, doc_id: str, op: dict) -> dict:
     rev, kind = doc["rev"] + 1, op["kind"]
     if op.get("rev") not in (None, rev):
         return {"ok": False, "error": f"rev conflict: next is {rev}"}
+    name = str(doc.get("name") or "")
+    if doc.get("log") != contracts.LOG_PAGED:  # the first edit by a version with pages: gather the older ops
+        doc["log"], doc["paged_at"] = contracts.LOG_PAGED, doc["rev"]
+        oplog.compact(data, doc_id, name)
     layer = next((x for x in doc["layers"] if x["id"] == op.get("layer")), None)
     if kind in PIXEL_KINDS:
         if layer is None:
@@ -225,14 +229,16 @@ def append(api, doc_id: str, op: dict) -> dict:
             return {"ok": False, "error": err}
     elif kind == "undo":
         t = op["args"].get("target")
-        target = data.get(contracts.op_key(doc_id, t)) if isinstance(t, int) else None
+        target = oplog.get(data, doc_id, t)
         if not target or t >= rev or target["kind"].startswith("layer."):
             return {"ok": False, "error": "undo target must be an earlier non-layer op rev"}
     op.update(id=contracts.op_key(doc_id, rev), doc=doc_id, rev=rev, t=round(time.time(), 3))
-    data.put(op["id"], op)
+    oplog.put(data, doc_id, op, name)
     doc["rev"] = rev
     if rev % contracts.CHECKPOINT_INTERVAL == 0:
         doc["checkpoint_rev"] = rev
+        doc["cps"] = [*(doc.get("cps") or []), rev][-contracts.CPS_KEEP:]
+        oplog.compact(data, doc_id, name)  # ops a teammate on a version before pages added since
         data.put(contracts.doc_key(doc_id), doc)
         save_checkpoint(api, doc_id, replay(api, doc_id, rev), rev)
     else:
@@ -300,8 +306,8 @@ def undo(api, doc_id: str, by=None, steps: int = 1) -> dict:
 # ---- replay / checkpoints --------------------------------------------------------------------------
 
 def _load(api, doc_id: str, lo: int, hi: int) -> list[dict]:
-    got = (api.data.get(contracts.op_key(doc_id, r)) for r in range(lo, hi + 1))
-    return [o for o in got if o]
+    return oplog.load(api.data, doc_id, lo, hi)
+
 
 
 def _undone(ops: list[dict], upto: int) -> set[int]:
@@ -378,7 +384,7 @@ def replay(api, doc_id: str, upto: int | None = None, handlers: dict | None = No
     base, cv = 0, render.Canvas(w0, h0)
     if use_checkpoints:
         known = set(checkpoint_revs(api, doc_id)) | ({doc["checkpoint_rev"]} if doc.get("checkpoint_rev") else set())
-        for cp in sorted((c for c in known if c <= upto), reverse=True):
+        for cp in sorted((c for c in known if c <= upto and contracts.checkpoint_ok(doc, c)), reverse=True):
             if _undone(ops, cp) == {r for r in final if r <= cp}:
                 fresh = render.Canvas(doc["w"], doc["h"])
                 if _load_checkpoint(api, doc_id, fresh, cp, [x["id"] for x in doc["layers"]]):
@@ -444,8 +450,7 @@ def ops_since(api, doc_id: str, rev: int = 0, limit: int = 100) -> dict:
 
 
 def delete_log(api, doc_id: str, last_rev: int) -> None:
-    for r in range(1, last_rev + 1):
-        api.data.delete(contracts.op_key(doc_id, r))
+    oplog.delete(api.data, doc_id)
     shutil.rmtree(_px_dir(api, doc_id), ignore_errors=True)
 
 

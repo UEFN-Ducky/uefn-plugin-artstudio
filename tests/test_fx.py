@@ -259,6 +259,9 @@ class _Data:
     def delete(self, k):
         self.d.pop(k, None)
 
+    def items(self, prefix=""):
+        return {k: self.get(k) for k in list(self.d) if k.startswith(prefix)}
+
 
 class _Api:
     def __init__(self):

@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PIL import Image  # noqa: E402
 
-from backend import contracts  # noqa: E402
+from backend import contracts, oplog  # noqa: E402
 from backend.brush import engine, import_abr, import_krita, import_procreate, presets, tools  # noqa: E402
 
 
@@ -236,7 +236,7 @@ class Tools(unittest.TestCase):
         s = [{"layer": "L1", "pts": [[0, 0, 0.1], [10, 5], [20, 9, 1]], "color": "#112233", "brush": "brush.pencil"}] * 20
         r = api.nodes["artstudio.stroke"]({"config": {"doc": "d1", "strokes": s}})
         self.assertEqual(r, {"ok": True, "rev": 57, "ops": 20})
-        self.assertEqual(api.data.get("op.d1.00000057")["kind"], "stroke")
+        self.assertEqual(oplog.get(api.data, "d1", 57)["kind"], "stroke")
         bad = api.nodes["artstudio.stroke"]({"config": {"doc": "d1", "strokes": [{"layer": "L1", "pts": []}]}})
         self.assertFalse(bad["ok"])
 

@@ -18,6 +18,8 @@ import threading
 import time
 import uuid
 
+from . import contracts
+
 CHUNK_BYTES = 15000  # live messages are capped at 16 KB; leave room for the envelope
 TICKS_PER_S = 15     # each tick is ≤ 2 messages (op batch + ai.cursor): ≤ 30 messages/s
 
@@ -69,7 +71,7 @@ def chunk(ops: list[dict], limit: int = CHUNK_BYTES) -> list[list[dict]]:
 
 def sync_plan(doc: dict, ops: list[dict], have_rev: int) -> dict:
     """What a joiner at ``have_rev`` needs: checkpoint keys (if it is behind one) + ops after."""
-    cp = int(doc.get("checkpoint_rev") or 0)
+    cp = contracts.checkpoint_of(doc)
     base = max(have_rev, cp)
     keys = [f"px/{doc['id']}/{la['id']}@{cp}.png" for la in doc.get("layers") or []] if base > have_rev else []
     return {"doc": doc["id"], "rev": int(doc.get("rev") or 0), "base_rev": base, "checkpoint": keys,
@@ -143,7 +145,8 @@ def _daemon_timer(wait: float, fn) -> None:
 # ---- api glue ---------------------------------------------------------------
 
 def _ops(data, doc_id: str) -> list[dict]:
-    return sorted(data.items(f"op.{doc_id}.").values(), key=lambda o: o["rev"])
+    from . import oplog
+    return oplog.every(data, doc_id)
 
 
 def _push(event: dict) -> None:

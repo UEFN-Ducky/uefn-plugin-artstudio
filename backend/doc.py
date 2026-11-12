@@ -159,8 +159,8 @@ def get_doc(api, doc_id: str) -> dict:
     d = _doc(api, doc_id)
     if not d:
         return {"ok": False, "error": f"no doc {doc_id!r}"}
-    return {"ok": True, **{k: d[k] for k in ("id", "name", "w", "h", "rev", "checkpoint_rev", "layers")},
-            "project": _project_of(d)}
+    return {"ok": True, **{k: d[k] for k in ("id", "name", "w", "h", "rev", "layers")},
+            "checkpoint_rev": contracts.checkpoint_of(d), "project": _project_of(d)}
 
 
 def list_docs(api, query: str = "", project: str = "") -> dict:

@@ -1,7 +1,7 @@
 {
   "id": "artstudio",
   "kind": "plugin",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "label": "AI Art Studio",
   "description": "AI-driven paint, vector, retouch and export studio for game art, live with your team",
   "min_app_version": "1.0.0",
@@ -10,6 +10,7 @@
   "data_locks": {
     "doc.": "auto",
     "op.": "none",
+    "ops.": "none",
     "brush.": "auto",
     "style.": "auto"
   },

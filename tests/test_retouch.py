@@ -5,7 +5,7 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from PIL import Image  # noqa: E402
 
-from backend import contracts, retouch as rt  # noqa: E402
+from backend import contracts, oplog, retouch as rt  # noqa: E402
 
 
 def _px(*rgb):
@@ -217,14 +217,14 @@ def test_apply_adjust_ops_replay_and_undo():
     out = apply(d, [{"kind": "levels", "layer": "L1", "args": {"lo": 0, "hi": 128}},
                     {"kind": "resize", "layer": "L1", "args": {"w": 512}}])
     assert out["ok"] and out["rev"] == r0 + 2, out
-    op = api.data.get(contracts.op_key(d, r0 + 1))
+    op = oplog.get(api.data, d, r0 + 1)
     assert contracts.validate_op(op, strict=True)["ok"] and op["kind"] == "levels"
     img = ops.replay(api, d).get("L1")
     assert img.size == (1000, 500) and img.getpixel((10, 10))[0] == 255 and img.getpixel((600, 10))[3] == 0
     assert ops.undo(api, d, None, 2)["ok"] and ops.replay(api, d).get("L1").getpixel((10, 10))[0] == 128
     # the plan's example: flat args and `pts` for curves
     out = apply(d, [{"kind": "curves", "layer": "L1", "pts": [[0, 0], [128, 150], [255, 255]]}])
-    stored = api.data.get(contracts.op_key(d, out["rev"]))
+    stored = oplog.get(api.data, d, out["rev"])
     assert out["ok"] and stored["args"] == {"points": [[0, 0], [128, 150], [255, 255]]} and "pts" not in stored
     assert ops.replay(api, d).get("L1").getpixel((10, 10))[0] == 150
     bad = apply(d, [{"kind": "rotate", "layer": "L1", "args": {"spin": 3}}])

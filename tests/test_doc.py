@@ -124,7 +124,7 @@ def test_delete_doc_clears_ops():
     did = doc.new_doc(api, "Gone", 16, 16)["doc"]
     assert doc.delete_doc(api, did)["ok"]
     assert not doc.get_doc(api, did)["ok"]
-    assert not api.data.items("op.")
+    assert not api.data.items("op.") and not api.data.items("ops.")
     assert contracts.doc_key(did) not in api.data.d
 
 

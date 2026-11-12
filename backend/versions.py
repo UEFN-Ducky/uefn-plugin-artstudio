@@ -19,7 +19,7 @@ import time
 
 from PIL import Image, ImageChops
 
-from . import budget, contracts, ops, render
+from . import budget, contracts, oplog, ops, render
 
 AUTOSAVE_EVERY = 200
 AUTOSAVE_KEEP = 20
@@ -175,7 +175,7 @@ def _prune(api, doc_id) -> None:
 def _gc(api, doc_id) -> None:
     """Drop blobs no version and no restore op references (only pruned autosaves leave orphans)."""
     keep = {s for r in _all(api, doc_id) for s in r["layers"].values()}
-    for o in api.data.items(f"op.{doc_id}.").values():
+    for o in oplog.every(api.data, doc_id):
         if o.get("kind") == "restore":
             keep.update(o["args"].get("layers", {}).values())
     folder = _blobs(api, doc_id)

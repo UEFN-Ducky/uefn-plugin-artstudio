@@ -1,8 +1,9 @@
 """Shared artstudio contract: keys, op kinds, blends, op validation and the op-handler registry.
 
-Doc  doc.<id>: {id,name,w,h,rev,checkpoint_rev,layers:[{id,name,kind,visible,opacity,blend,locked,mask?}]}
-Op   op.<doc>.<rev:08d>: {id,doc,rev,by:{kind,id,label},t,kind,layer,args}
-Pixels: checkpoints px/<doc>/<layer>@<rev>.png every 50 ops.
+Doc  doc.<id>: {id,name,w,h,rev,checkpoint_rev,log,paged_at,cps,layers:[{id,name,kind,visible,opacity,blend,locked,mask?}]}
+Op   {id: op.<doc>.<rev:08d>, doc,rev,by:{kind,id,label},t,kind,layer,args}
+Ops rest 50 to a page, ops.<doc>.<page:06d>: {id,doc,page,name,ops:[op,...]} (oplog), so a team gets one item
+per 50 edits. Pixels: checkpoints px/<doc>/<layer>@<rev>.png every 50 ops.
 """
 
 from __future__ import annotations
@@ -10,6 +11,9 @@ from __future__ import annotations
 LAYER_KINDS = ("raster", "vector", "text", "adjust", "group")
 AUTHOR_KINDS = ("human", "ai")
 CHECKPOINT_INTERVAL = 50
+OPS_PAGE = CHECKPOINT_INTERVAL  # ops in one page doc
+LOG_PAGED = 2  # doc["log"]: its ops rest in pages since rev doc["paged_at"]
+CPS_KEEP = 40  # doc["cps"]: revs of the newest checkpoints made by a version that reads pages
 
 BLENDS = (
     "normal", "multiply", "screen", "overlay", "darken", "lighten",
@@ -36,6 +40,30 @@ def doc_key(doc_id: str) -> str:
 
 def op_key(doc_id: str, rev: int) -> str:
     return f"op.{doc_id}.{int(rev):08d}"
+
+
+def ops_key(doc_id: str, page: int) -> str:
+    return f"ops.{doc_id}.{int(page):06d}"
+
+
+def page_of(rev: int) -> int:
+    return (int(rev) - 1) // OPS_PAGE
+
+
+def checkpoint_ok(doc: dict, rev: int) -> bool:
+    """A pixel checkpoint to start from. Once the ops rest in pages, one made by a version before pages is
+    not: that version replays without the paged ops, so its checkpoint misses them. Those made before the
+    pages, and those listed in the doc's `cps`, are whole."""
+    return doc.get("log") != LOG_PAGED or rev <= int(doc.get("paged_at") or 0) or rev in (doc.get("cps") or ())
+
+
+def checkpoint_of(doc: dict) -> int:
+    """The newest checkpoint rev to start from (0: none)."""
+    cp = int(doc.get("checkpoint_rev") or 0)
+    if checkpoint_ok(doc, cp):
+        return cp
+    before = int(doc.get("paged_at") or 0) // CHECKPOINT_INTERVAL * CHECKPOINT_INTERVAL
+    return max([r for r in doc.get("cps") or () if r <= cp] + [before])
 
 
 def register_op_handler(kind: str, fn, sig: str = "", example=None) -> None:

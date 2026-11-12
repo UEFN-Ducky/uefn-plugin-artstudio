@@ -6,6 +6,7 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from PIL import ImageDraw  # noqa: E402
+from backend import oplog  # noqa: E402
 from backend.render import Canvas  # noqa: E402
 from backend.tools_paint import clone, gradient, heal, smudge, tone  # noqa: E402
 
@@ -175,7 +176,7 @@ def test_paint_kinds_through_artstudio_apply():
     assert not bad["ok"] and "smudge needs 2+ pts" in str(bad)
     assert not apply(did, [{"kind": "dodge", "layer": "L1", "args": {}}])["ok"]
     assert not apply(did, [{"kind": "gradient", "layer": "L1", "args": {"type": "spiral"}}])["ok"]
-    assert api.data.get(f"doc.{did}")["rev"] == rev and api.data.get(f"op.{did}.{rev + 1:08d}") is None
+    assert api.data.get(f"doc.{did}")["rev"] == rev and oplog.get(api.data, did, rev + 1) is None
     # paint() checks before appending
     assert not smudge.paint(api, did, "L1", "smudge", {"pts": [[1, 1]]})["ok"]
     assert smudge.paint(api, did, "L1", "heal", {"pts": [[20, 20]], "size": 6})["ok"]
